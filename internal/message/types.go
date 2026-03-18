@@ -2,10 +2,12 @@ package message
 
 // Content types
 const (
-	ContentText           uint8 = 0
+	ContentText            uint8 = 0
 	ContentDeliveryConfirm uint8 = 1
-	ContentContactsSync   uint8 = 2
-	ContentAppUpdate      uint8 = 255
+	ContentContactsSync    uint8 = 2
+	ContentGroupText       uint8 = 3
+	ContentGroupInvite     uint8 = 4
+	ContentAppUpdate       uint8 = 255
 )
 
 // Protocol version

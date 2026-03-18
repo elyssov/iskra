@@ -37,6 +37,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/online", s.api.HandleOnline)
 	mux.HandleFunc("/api/chat/delete/", s.api.HandleDeleteChat)
 	mux.HandleFunc("/api/contacts/rename/", s.api.HandleRenameContact)
+	mux.HandleFunc("/api/groups", s.api.HandleGroups)
+	mux.HandleFunc("/api/groups/messages/", s.api.HandleGroupMessages)
+	mux.HandleFunc("/api/groups/delete/", s.api.HandleDeleteGroup)
 
 	// Static files
 	staticFS, err := fs.Sub(staticFiles, "static")

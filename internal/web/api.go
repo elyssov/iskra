@@ -18,7 +18,7 @@ import (
 )
 
 // Build number — increment on each iteration
-const BuildNumber = 3
+const BuildNumber = 4
 
 // API handles REST API requests.
 type API struct {
@@ -31,6 +31,7 @@ type API struct {
 	Peers       *mesh.PeerList
 	Transport   *mesh.Transport
 	RelayClient *mesh.RelayClient
+	Groups      *store.Groups
 	Mode        string // "lan", "relay", "offline"
 	DataDir     string // For restore functionality
 }
@@ -335,10 +336,54 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 			if len(plaintext) == 32 {
 				msgID := hex.EncodeToString(plaintext)
 				a.Inbox.MarkDelivered(msgID)
-				// Remove from hold
 				var id [32]byte
 				copy(id[:], plaintext)
 				a.Hold.Delete(id)
+			}
+
+		case message.ContentGroupText:
+			if a.Groups != nil {
+				// Payload: groupID + "|" + text
+				parts := strings.SplitN(string(plaintext), "|", 2)
+				if len(parts) == 2 {
+					groupID := parts[0]
+					text := parts[1]
+					senderID := identity.UserID(msg.AuthorPub)
+
+					// Resolve sender name
+					senderName := senderID[:8]
+					if contact := a.Contacts.GetByUserID(senderID); contact != nil {
+						senderName = contact.Name
+					} else if group := a.Groups.Get(groupID); group != nil {
+						for _, m := range group.Members {
+							if m.UserID == senderID {
+								senderName = m.Name
+								break
+							}
+						}
+					}
+
+					log.Printf("[Group] Text in %s from %s: %q", groupID[:8], senderName, text)
+					a.Groups.AddMessage(store.GroupMessage{
+						ID:        hex.EncodeToString(msg.ID[:]),
+						GroupID:   groupID,
+						From:      senderID,
+						FromName:  senderName,
+						Text:      text,
+						Timestamp: msg.Timestamp,
+						Outgoing:  false,
+					})
+					a.Groups.Save()
+				}
+			}
+
+		case message.ContentGroupInvite:
+			if a.Groups != nil {
+				var group store.Group
+				if err := json.Unmarshal(plaintext, &group); err == nil {
+					log.Printf("[Group] Received invite for group %q (%s)", group.Name, group.ID[:8])
+					a.Groups.AddByInvite(group)
+				}
 			}
 		}
 	}
@@ -551,6 +596,234 @@ func (a *API) sendDeliveryConfirm(origMsg *message.Message) {
 	// Broadcast to LAN peers
 	if a.Transport != nil {
 		a.Transport.BroadcastMessage(confirmMsg)
+	}
+}
+
+// HandleGroups handles GET (list) and POST (create) for groups.
+func (a *API) HandleGroups(w http.ResponseWriter, r *http.Request) {
+	if a.Groups == nil {
+		http.Error(w, "groups not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, a.Groups.List())
+
+	case http.MethodPost:
+		var req struct {
+			Name    string   `json:"name"`
+			Members []string `json:"members"` // list of UserIDs
+		}
+		if err := readJSON(r, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Name == "" || len(req.Members) < 1 {
+			http.Error(w, "name and at least 1 member required", http.StatusBadRequest)
+			return
+		}
+
+		// Build member list from contacts
+		myID := identity.UserID(a.Keypair.Ed25519Pub)
+		members := []store.GroupMember{{
+			UserID:    myID,
+			Name:      "Я",
+			PubKey:    identity.ToBase58(a.Keypair.Ed25519Pub[:]),
+			X25519Pub: identity.ToBase58(a.Keypair.X25519Pub[:]),
+		}}
+
+		for _, uid := range req.Members {
+			contact := a.Contacts.GetByUserID(uid)
+			if contact == nil {
+				http.Error(w, "contact not found: "+uid, http.StatusBadRequest)
+				return
+			}
+			members = append(members, store.GroupMember{
+				UserID:    contact.UserID,
+				Name:      contact.Name,
+				PubKey:    contact.PubKey,
+				X25519Pub: contact.X25519Pub,
+			})
+		}
+
+		group := a.Groups.Create(req.Name, myID, members)
+
+		// Send group invite to all members
+		go a.sendGroupInvites(group)
+
+		writeJSON(w, group)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// HandleGroupMessages handles GET (history) and POST (send) for group messages.
+func (a *API) HandleGroupMessages(w http.ResponseWriter, r *http.Request) {
+	if a.Groups == nil {
+		http.Error(w, "groups not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	groupID := strings.TrimPrefix(r.URL.Path, "/api/groups/messages/")
+	groupID = strings.TrimRight(groupID, "/")
+	if groupID == "" {
+		http.Error(w, "groupID required", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		msgs := a.Groups.GetMessages(groupID)
+		writeJSON(w, msgs)
+
+	case http.MethodPost:
+		var req messageRequest
+		if err := readJSON(r, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		group := a.Groups.Get(groupID)
+		if group == nil {
+			http.Error(w, "group not found", http.StatusNotFound)
+			return
+		}
+
+		myID := identity.UserID(a.Keypair.Ed25519Pub)
+
+		// Store in group messages
+		msgIDBytes := make([]byte, 32)
+		for i := range msgIDBytes {
+			msgIDBytes[i] = byte(i) ^ byte(time.Now().UnixNano()>>(i%8))
+		}
+		msgID := hex.EncodeToString(msgIDBytes)
+
+		a.Groups.AddMessage(store.GroupMessage{
+			ID:        msgID,
+			GroupID:   groupID,
+			From:      myID,
+			FromName:  "Я",
+			Text:      req.Text,
+			Timestamp: time.Now().Unix(),
+			Outgoing:  true,
+		})
+
+		// Payload: groupID (hex, 64 chars) + "|" + text
+		payload := []byte(groupID + "|" + req.Text)
+
+		// Send to each member (except self)
+		for _, member := range group.Members {
+			if member.UserID == myID {
+				continue
+			}
+
+			edPubBytes, err := identity.FromBase58(member.PubKey)
+			if err != nil || len(edPubBytes) != 32 {
+				continue
+			}
+			var recipientKeys message.RecipientKeys
+			copy(recipientKeys.Ed25519Pub[:], edPubBytes)
+
+			if member.X25519Pub != "" {
+				x25519Bytes, err := identity.FromBase58(member.X25519Pub)
+				if err == nil && len(x25519Bytes) == 32 {
+					copy(recipientKeys.X25519Pub[:], x25519Bytes)
+				}
+			}
+
+			msg, err := message.NewWithType(a.Keypair, recipientKeys, message.ContentGroupText, payload)
+			if err != nil {
+				log.Printf("[Group] Failed to create message for %s: %v", member.UserID[:8], err)
+				continue
+			}
+
+			a.Bloom.Add(msg.ID)
+			a.Hold.Store(msg)
+
+			if a.RelayClient != nil && a.RelayClient.IsConnected() {
+				a.RelayClient.SendMessage(msg)
+			}
+			if a.Transport != nil {
+				a.Transport.BroadcastMessage(msg)
+			}
+		}
+
+		a.Groups.Save()
+		writeJSON(w, map[string]string{"status": "sent", "id": msgID})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// HandleDeleteGroup deletes a group chat.
+func (a *API) HandleDeleteGroup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	groupID := strings.TrimPrefix(r.URL.Path, "/api/groups/delete/")
+	groupID = strings.TrimRight(groupID, "/")
+	if groupID == "" {
+		http.Error(w, "groupID required", http.StatusBadRequest)
+		return
+	}
+	if a.Groups.Delete(groupID) {
+		writeJSON(w, map[string]string{"status": "ok"})
+	} else {
+		http.Error(w, "group not found", http.StatusNotFound)
+	}
+}
+
+// sendGroupInvites sends group invite to all members.
+func (a *API) sendGroupInvites(group *store.Group) {
+	myID := identity.UserID(a.Keypair.Ed25519Pub)
+
+	// Invite payload: JSON with group info
+	inviteData, err := json.Marshal(group)
+	if err != nil {
+		log.Printf("[Group] Failed to marshal invite: %v", err)
+		return
+	}
+
+	for _, member := range group.Members {
+		if member.UserID == myID {
+			continue
+		}
+
+		edPubBytes, err := identity.FromBase58(member.PubKey)
+		if err != nil || len(edPubBytes) != 32 {
+			continue
+		}
+		var recipientKeys message.RecipientKeys
+		copy(recipientKeys.Ed25519Pub[:], edPubBytes)
+
+		if member.X25519Pub != "" {
+			x25519Bytes, err := identity.FromBase58(member.X25519Pub)
+			if err == nil && len(x25519Bytes) == 32 {
+				copy(recipientKeys.X25519Pub[:], x25519Bytes)
+			}
+		}
+
+		msg, err := message.NewWithType(a.Keypair, recipientKeys, message.ContentGroupInvite, inviteData)
+		if err != nil {
+			log.Printf("[Group] Failed to create invite for %s: %v", member.UserID[:8], err)
+			continue
+		}
+
+		a.Bloom.Add(msg.ID)
+		a.Hold.Store(msg)
+
+		if a.RelayClient != nil && a.RelayClient.IsConnected() {
+			a.RelayClient.SendMessage(msg)
+		}
+		if a.Transport != nil {
+			a.Transport.BroadcastMessage(msg)
+		}
+
+		log.Printf("[Group] Sent invite to %s for group %s", member.UserID[:8], group.Name)
 	}
 }
 

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -72,6 +74,11 @@ func main() {
 	}
 	inbox.Load(filepath.Join(*dataDir, "inbox.json"))
 
+	groups, err := store.NewGroups(filepath.Join(*dataDir, "groups.json"))
+	if err != nil {
+		log.Fatalf("Failed to load groups: %v", err)
+	}
+
 	// Initialize mesh
 	peers := mesh.NewPeerList()
 	transport := mesh.NewTransport(keypair.Ed25519Pub, uint16(*meshPort), peers)
@@ -100,6 +107,7 @@ func main() {
 		Peers:       peers,
 		Transport:   transport,
 		RelayClient: relayClient,
+		Groups:      groups,
 		Mode:        mode,
 		DataDir:     *dataDir,
 	}
@@ -147,14 +155,19 @@ func main() {
 		log.Fatalf("Failed to start web server: %v", err)
 	}
 
+	uiURL := fmt.Sprintf("http://localhost:%d", server.Port())
+
 	fmt.Printf("\n🔥 Искра запущена\n")
 	fmt.Printf("   ID:    %s\n", userID)
-	fmt.Printf("   UI:    http://localhost:%d\n", server.Port())
+	fmt.Printf("   UI:    %s\n", uiURL)
 	fmt.Printf("   Mesh:  порт %d\n", transport.Port())
 	if *relayURL != "" {
 		fmt.Printf("   Relay: %s\n", *relayURL)
 	}
 	fmt.Printf("   Режим: %s\n\n", mode)
+
+	// Auto-open browser
+	openBrowser(uiURL)
 
 	// Wait for shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -163,6 +176,7 @@ func main() {
 
 	fmt.Println("\nОстановка...")
 	inbox.Save(filepath.Join(*dataDir, "inbox.json"))
+	groups.Save()
 	discovery.Stop()
 	transport.Stop()
 	if relayClient != nil {
@@ -212,6 +226,22 @@ func restoreFromMnemonic(dataDir, mnemonicStr string) {
 	}
 	kp := identity.KeypairFromSeed(seed)
 	fmt.Printf("✓ Ключ восстановлен. ID: %s\n", identity.UserID(kp.Ed25519Pub))
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	if err := cmd.Start(); err != nil {
+		log.Printf("Не удалось открыть браузер: %v", err)
+		fmt.Printf("   Откройте вручную: %s\n\n", url)
+	}
 }
 
 func defaultDataDir() string {

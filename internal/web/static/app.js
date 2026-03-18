@@ -1,9 +1,11 @@
 // Искра — UI для людей
 (function() {
   let currentContact = null;
+  let currentGroup = null; // group chat mode
   let contacts = [];
+  let groups = [];
   let pollTimer = null;
-  let unreadCounts = {}; // userID -> count
+  let unreadCounts = {}; // userID or groupID -> count
 
   // Цвета аватаров — теплые, различимые
   const avatarColors = [
@@ -34,6 +36,7 @@
     }
 
     await loadContacts();
+    await loadGroups();
     await loadStatus();
     loadOnline();
     updateUnreadCounts();
@@ -121,7 +124,10 @@
 
   function renderContacts() {
     const list = document.getElementById('contacts-list');
-    if (!contacts || contacts.length === 0) {
+    const hasContacts = contacts && contacts.length > 0;
+    const hasGroups = groups && groups.length > 0;
+
+    if (!hasContacts && !hasGroups) {
       list.innerHTML = `<div class="contacts-empty">
         <div class="contacts-empty-icon">👋</div>
         <h3>Пока никого нет</h3>
@@ -130,25 +136,58 @@
       return;
     }
 
-    list.innerHTML = contacts.map(c => {
-      const initial = (c.name || '?')[0].toUpperCase();
-      const color = getAvatarColor(c.name);
-      const active = currentContact && currentContact.user_id === c.user_id ? ' active' : '';
-      const unread = unreadCounts[c.user_id] || 0;
-      const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
-      return `<div class="contact-item${active}" data-uid="${c.user_id}">
-        <div class="contact-avatar" style="background:${color}">${initial}</div>
-        <div class="contact-info">
-          <div class="contact-name">${esc(c.name)}${badge}</div>
-          <div class="contact-last">${c.user_id}</div>
-        </div>
-      </div>`;
-    }).join('');
+    let html = '';
 
-    list.querySelectorAll('.contact-item').forEach(el => {
+    // Groups first
+    if (hasGroups) {
+      html += groups.map(g => {
+        const active = currentGroup && currentGroup.id === g.id ? ' active' : '';
+        const unread = unreadCounts['g:' + g.id] || 0;
+        const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
+        const memberCount = g.members ? g.members.length : 0;
+        return `<div class="contact-item group-item${active}" data-gid="${g.id}">
+          <div class="contact-avatar" style="background:#6c5ce7">&#128101;</div>
+          <div class="contact-info">
+            <div class="contact-name">${esc(g.name)}${badge}</div>
+            <div class="contact-last">${memberCount} участников</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // Contacts
+    if (hasContacts) {
+      html += contacts.map(c => {
+        const initial = (c.name || '?')[0].toUpperCase();
+        const color = getAvatarColor(c.name);
+        const active = currentContact && currentContact.user_id === c.user_id ? ' active' : '';
+        const unread = unreadCounts[c.user_id] || 0;
+        const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
+        return `<div class="contact-item${active}" data-uid="${c.user_id}">
+          <div class="contact-avatar" style="background:${color}">${initial}</div>
+          <div class="contact-info">
+            <div class="contact-name">${esc(c.name)}${badge}</div>
+            <div class="contact-last">${c.user_id}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    list.innerHTML = html;
+
+    // Contact click handlers
+    list.querySelectorAll('.contact-item:not(.group-item)').forEach(el => {
       el.addEventListener('click', () => {
         const contact = contacts.find(c => c.user_id === el.dataset.uid);
         if (contact) openChat(contact);
+      });
+    });
+
+    // Group click handlers
+    list.querySelectorAll('.group-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const group = groups.find(g => g.id === el.dataset.gid);
+        if (group) openGroupChat(group);
       });
     });
   }
@@ -262,9 +301,84 @@
     }
   }
 
+  // === GROUPS ===
+  async function loadGroups() {
+    try {
+      const resp = await fetch('/api/groups');
+      groups = await resp.json();
+      if (!groups) groups = [];
+      renderContacts(); // re-render to include groups
+    } catch(e) { groups = []; }
+  }
+
+  function openGroupChat(group) {
+    currentContact = null;
+    currentGroup = group;
+    document.getElementById('chat-contact-name').textContent = group.name;
+    document.getElementById('input-area').style.display = 'flex';
+    document.getElementById('welcome-screen').style.display = 'none';
+    document.getElementById('app').classList.add('chat-open');
+    document.getElementById('btn-delete-chat').style.display = 'inline-flex';
+    document.getElementById('btn-rename-contact').style.display = 'none';
+
+    markAsRead('g:' + group.id);
+    renderContacts();
+    loadGroupMessages();
+    setTimeout(() => document.getElementById('msg-input').focus(), 100);
+  }
+
+  async function loadGroupMessages() {
+    if (!currentGroup) return;
+    try {
+      const resp = await fetch(`/api/groups/messages/${currentGroup.id}`);
+      const msgs = await resp.json();
+      renderGroupMessages(msgs);
+      if (msgs && msgs.length > 0) {
+        markAsRead('g:' + currentGroup.id);
+      }
+    } catch(e) {}
+  }
+
+  function renderGroupMessages(msgs) {
+    const container = document.getElementById('messages');
+    if (!msgs || msgs.length === 0) {
+      container.innerHTML = '<div class="messages-empty">Групповой чат создан. Напишите первое сообщение!</div>';
+      return;
+    }
+    container.innerHTML = msgs.map(m => {
+      const cls = m.outgoing ? 'out' : 'in';
+      const time = formatTime(m.timestamp);
+      const sender = m.outgoing ? '' : `<div class="group-sender" style="color:${getAvatarColor(m.from_name)}">${esc(m.from_name)}</div>`;
+      return `<div class="message ${cls}">
+        ${sender}
+        <div>${esc(m.text)}</div>
+        <div class="meta"><span>${time}</span></div>
+      </div>`;
+    }).join('');
+    container.scrollTop = container.scrollHeight;
+  }
+
+  async function sendGroupMessage() {
+    if (!currentGroup) return;
+    const input = document.getElementById('msg-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    input.style.height = 'auto';
+    try {
+      await fetch(`/api/groups/messages/${currentGroup.id}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text})
+      });
+      loadGroupMessages();
+    } catch(e) { console.error('Group send failed:', e); }
+  }
+
   // === CHAT ===
   function openChat(contact) {
     currentContact = contact;
+    currentGroup = null;
     document.getElementById('chat-contact-name').textContent = contact.name;
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
@@ -364,9 +478,14 @@
   // === EVENTS ===
   function setupEvents() {
     // Send
-    document.getElementById('btn-send').addEventListener('click', sendMessage);
+    document.getElementById('btn-send').addEventListener('click', () => {
+      if (currentGroup) sendGroupMessage(); else sendMessage();
+    });
     document.getElementById('msg-input').addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (currentGroup) sendGroupMessage(); else sendMessage();
+      }
     });
     document.getElementById('msg-input').addEventListener('input', function() {
       this.style.height = 'auto';
@@ -380,16 +499,27 @@
       document.getElementById('btn-delete-chat').style.display = 'none';
       document.getElementById('btn-rename-contact').style.display = 'none';
       currentContact = null;
+      currentGroup = null;
     });
 
-    // Delete chat
+    // Delete chat (works for both DM and group)
     document.getElementById('btn-delete-chat').addEventListener('click', async () => {
-      if (!currentContact) return;
-      if (!confirm(`Удалить переписку с ${currentContact.name}?`)) return;
-      try {
-        await fetch(`/api/chat/delete/${currentContact.user_id}`, {method: 'POST'});
-        loadMessages();
-      } catch(e) { console.error('Delete chat failed:', e); }
+      if (currentGroup) {
+        if (!confirm(`Удалить группу «${currentGroup.name}»?`)) return;
+        try {
+          await fetch(`/api/groups/delete/${currentGroup.id}`, {method: 'POST'});
+          currentGroup = null;
+          document.getElementById('app').classList.remove('chat-open');
+          document.getElementById('welcome-screen').style.display = 'flex';
+          loadGroups();
+        } catch(e) { console.error('Delete group failed:', e); }
+      } else if (currentContact) {
+        if (!confirm(`Удалить переписку с ${currentContact.name}?`)) return;
+        try {
+          await fetch(`/api/chat/delete/${currentContact.user_id}`, {method: 'POST'});
+          loadMessages();
+        } catch(e) { console.error('Delete chat failed:', e); }
+      }
     });
 
     // Rename contact
@@ -438,6 +568,50 @@
         btn.textContent = 'Скопировано!';
         setTimeout(() => { btn.textContent = 'Скопировать визитку'; }, 2000);
       });
+    });
+
+    // Create group
+    document.getElementById('btn-create-group').addEventListener('click', () => {
+      const membersList = document.getElementById('group-members-list');
+      if (!contacts || contacts.length === 0) {
+        membersList.innerHTML = '<p style="color:var(--text-light)">Сначала добавьте контакты</p>';
+      } else {
+        membersList.innerHTML = contacts.map(c =>
+          `<label class="group-member-option">
+            <input type="checkbox" value="${c.user_id}" />
+            <span>${esc(c.name)}</span>
+          </label>`
+        ).join('');
+      }
+      document.getElementById('group-name').value = '';
+      document.getElementById('modal-group').style.display = 'flex';
+      document.getElementById('group-name').focus();
+    });
+
+    document.getElementById('btn-group-create').addEventListener('click', async () => {
+      const name = document.getElementById('group-name').value.trim();
+      if (!name) {
+        document.getElementById('group-name').style.borderColor = '#d94040';
+        setTimeout(() => { document.getElementById('group-name').style.borderColor = ''; }, 2000);
+        return;
+      }
+      const checked = document.querySelectorAll('#group-members-list input:checked');
+      const members = Array.from(checked).map(el => el.value);
+      if (members.length === 0) return;
+
+      try {
+        const resp = await fetch('/api/groups', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({name, members})
+        });
+        if (resp.ok) {
+          closeModal('modal-group');
+          await loadGroups();
+          const group = groups.find(g => g.name === name);
+          if (group) openGroupChat(group);
+        }
+      } catch(e) { console.error('Create group failed:', e); }
     });
 
     // Add contact
@@ -605,9 +779,10 @@
     // Fast poll for messages (2s), slower for status/online/unread (5s)
     setInterval(() => {
       if (currentContact) loadMessages();
+      if (currentGroup) loadGroupMessages();
     }, 2000);
     setInterval(() => {
-      loadContacts().then(() => updateUnreadCounts());
+      loadContacts().then(() => loadGroups()).then(() => updateUnreadCounts());
       loadStatus();
       loadOnline();
     }, 5000);

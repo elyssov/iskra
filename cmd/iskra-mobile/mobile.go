@@ -60,6 +60,12 @@ func Start(dataDir string, port int) int {
 	}
 	inbox.Load(filepath.Join(dataDir, "inbox.json"))
 
+	groups, err := store.NewGroups(filepath.Join(dataDir, "groups.json"))
+	if err != nil {
+		log.Printf("Failed to load groups: %v", err)
+		return 0
+	}
+
 	// Initialize mesh
 	peers := mesh.NewPeerList()
 	transport := mesh.NewTransport(keypair.Ed25519Pub, 0, peers)
@@ -84,6 +90,7 @@ func Start(dataDir string, port int) int {
 		Peers:       peers,
 		Transport:   transport,
 		RelayClient: relayClient,
+		Groups:      groups,
 		Mode:        mode,
 		DataDir:     dataDir,
 	}

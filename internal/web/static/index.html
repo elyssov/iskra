@@ -50,8 +50,11 @@
       <button id="btn-add-contact" title="Добавить контакт">
         <span class="btn-icon">+</span> Добавить
       </button>
+      <button id="btn-create-group" title="Создать группу">
+        <span class="btn-icon">&#128101;</span> Группа
+      </button>
       <button id="btn-show-id" title="Моя визитка и ключи">
-        <span class="btn-icon">🔑</span> Мой ключ
+        <span class="btn-icon">🔑</span> Ключ
       </button>
     </div>
   </div>
@@ -115,7 +118,13 @@
     </div>
     <div class="help-section">
       <h4>Что означают галочки?</h4>
-      <p>✓ — сообщение отправлено в сеть<br>✓✓ — собеседник получил и прочитал</p>
+      <p>✓ — сообщение отправлено в сеть<br>✓✓ — собеседник получил сообщение</p>
+    </div>
+    <div class="help-section">
+      <h4>Кто эти люди «В сети сейчас»?</h4>
+      <p>Это участники сети Искра, подключённые к relay-серверу прямо сейчас. Каждому присваивается случайный революционный псевдоним — Ильич, Крупская, Орджоникидзе и т.д. При переподключении псевдоним меняется.</p>
+      <p>Если рядом с именем стоит метка <strong>«контакт»</strong> — значит, вы уже знаете этого человека (он есть в вашем списке контактов). Нажмите на него, чтобы открыть чат.</p>
+      <p>Незнакомцев тоже можно добавить — нажмите на псевдоним, и контакт создастся автоматически.</p>
     </div>
     <div class="help-section">
       <h4>Что такое "трюм"?</h4>
@@ -209,6 +218,23 @@
     <div class="modal-buttons">
       <button class="btn-primary" id="btn-restore-go">Восстановить</button>
       <button class="btn-secondary" onclick="closeModal('modal-restore')">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модальное: Создать группу -->
+<div id="modal-group" class="modal" style="display:none">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Создать группу</h3>
+      <button class="modal-close" onclick="closeModal('modal-group')">&times;</button>
+    </div>
+    <p class="help-text">Выберите контакты для группового чата.</p>
+    <input id="group-name" placeholder="Название группы" class="input-large" />
+    <div id="group-members-list" class="group-members-list"></div>
+    <div class="modal-buttons">
+      <button class="btn-primary" id="btn-group-create">Создать</button>
+      <button class="btn-secondary" onclick="closeModal('modal-group')">Отмена</button>
     </div>
   </div>
 </div>

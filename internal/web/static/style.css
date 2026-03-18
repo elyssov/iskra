@@ -759,6 +759,41 @@ body {
 .help-motto em { font-size: 16px; color: var(--text); }
 .help-small { font-size: 12px; color: var(--text-lighter); margin-top: 8px; }
 
+/* Groups */
+.group-members-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 8px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+}
+
+.group-member-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+
+.group-member-option:hover { background: var(--bg); }
+
+.group-member-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--blue);
+}
+
+.group-sender {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
 /* Mobile */
 .mobile-only { display: none; }
 
