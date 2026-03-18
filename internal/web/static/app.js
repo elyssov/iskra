@@ -67,6 +67,12 @@
       localStorage.setItem('iskra-started', '1');
       showApp();
     });
+
+    // Кнопка восстановления
+    document.getElementById('btn-restore').addEventListener('click', () => {
+      document.getElementById('modal-restore').style.display = 'flex';
+      document.getElementById('restore-words').focus();
+    });
   }
 
   function showApp() {
@@ -148,10 +154,27 @@
       const resp = await fetch('/api/status');
       const data = await resp.json();
       const bar = document.getElementById('status-bar');
-      const isOnline = data.peers > 0;
-      const dotClass = isOnline ? 'online' : 'offline';
-      const modeText = isOnline ? `${data.peers} рядом` : 'поиск соседей...';
-      bar.innerHTML = `<span class="status-dot ${dotClass}"></span> ${modeText} · ${data.holdSize} в трюме`;
+
+      let parts = [];
+
+      // Relay indicator
+      if (data.relay) {
+        parts.push('<span class="status-dot online"></span> relay');
+      } else {
+        parts.push('<span class="status-dot offline"></span> relay');
+      }
+
+      // LAN peers
+      if (data.peers > 0) {
+        parts.push(`${data.peers} рядом`);
+      }
+
+      // Hold
+      if (data.holdSize > 0) {
+        parts.push(`${data.holdSize} в трюме`);
+      }
+
+      bar.innerHTML = parts.join(' · ');
     } catch(e) {}
   }
 
@@ -357,6 +380,39 @@
           await loadContacts();
         }
       } catch(e) {}
+    });
+
+    // Restore from mnemonic
+    document.getElementById('btn-restore-go').addEventListener('click', async () => {
+      const words = document.getElementById('restore-words').value.trim();
+      const errEl = document.getElementById('restore-error');
+      errEl.style.display = 'none';
+
+      if (!words) {
+        errEl.textContent = 'Введите 24 слова';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      try {
+        const resp = await fetch('/api/restore', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({words})
+        });
+        const data = await resp.json();
+        if (data.error) {
+          errEl.textContent = data.error;
+          errEl.style.display = 'block';
+        } else {
+          localStorage.setItem('iskra-started', '1');
+          alert('Ключ восстановлен! ID: ' + data.userID + '\n\nПерезапустите приложение.');
+          closeModal('modal-restore');
+        }
+      } catch(e) {
+        errEl.textContent = 'Ошибка связи с сервером';
+        errEl.style.display = 'block';
+      }
     });
 
     // Import

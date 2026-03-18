@@ -25,6 +25,7 @@
       <div class="mnemonic-grid" id="onboarding-mnemonic"></div>
     </div>
     <button class="btn-primary btn-large" id="btn-start">Я записал(а) слова. Начать.</button>
+    <button class="btn-secondary btn-large" id="btn-restore" style="margin-top:8px">У меня уже есть 24 слова</button>
   </div>
 </div>
 
@@ -183,6 +184,23 @@
     <div class="modal-buttons">
       <button class="btn-primary" id="btn-import-save">Импортировать</button>
       <button class="btn-secondary" onclick="closeModal('modal-import')">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модальное: Восстановление -->
+<div id="modal-restore" class="modal" style="display:none">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Восстановление из мнемоники</h3>
+      <button class="modal-close" onclick="closeModal('modal-restore')">&times;</button>
+    </div>
+    <p class="help-text">Введите ваши 24 слова через пробел. После восстановления приложение перезапустится с вашим ключом.</p>
+    <textarea id="restore-words" placeholder="слово1 слово2 слово3 ... слово24" rows="4" class="input-large"></textarea>
+    <div id="restore-error" style="color:#e17055;margin:8px 0;display:none"></div>
+    <div class="modal-buttons">
+      <button class="btn-primary" id="btn-restore-go">Восстановить</button>
+      <button class="btn-secondary" onclick="closeModal('modal-restore')">Отмена</button>
     </div>
   </div>
 </div>

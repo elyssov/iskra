@@ -102,6 +102,7 @@ func main() {
 		Transport:   transport,
 		RelayClient: relayClient,
 		Mode:        mode,
+		DataDir:     *dataDir,
 	}
 
 	// Message handler (shared between transport and relay)

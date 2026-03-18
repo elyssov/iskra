@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ type API struct {
 	Transport   *mesh.Transport
 	RelayClient *mesh.RelayClient
 	Mode        string // "lan", "relay", "offline"
+	DataDir     string // For restore functionality
 }
 
 type identityResponse struct {
@@ -49,6 +51,7 @@ type messageRequest struct {
 type statusResponse struct {
 	Mode     string `json:"mode"`
 	Peers    int    `json:"peers"`
+	Relay    bool   `json:"relay"`
 	HoldSize int    `json:"holdSize"`
 	Version  string `json:"version"`
 }
@@ -209,9 +212,12 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		mode = "lan"
 	}
 
+	relayConnected := a.RelayClient != nil && a.RelayClient.IsConnected()
+
 	resp := statusResponse{
 		Mode:     mode,
 		Peers:    a.Peers.Count(),
+		Relay:    relayConnected,
 		HoldSize: a.Hold.Count(),
 		Version:  "0.1.0-alpha",
 	}
@@ -318,6 +324,53 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 		// Try to read the original message ID from payload (it's encrypted for broadcast sender)
 		// For broadcasts, just store and forward
 	}
+}
+
+// HandleRestore restores identity from mnemonic words.
+func (a *API) HandleRestore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Words string `json:"words"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	words := strings.Fields(req.Words)
+	if len(words) != 24 {
+		writeJSON(w, map[string]string{"error": "Нужно ровно 24 слова"})
+		return
+	}
+
+	if !identity.ValidateMnemonic(words) {
+		writeJSON(w, map[string]string{"error": "Невалидная мнемоника. Проверьте слова."})
+		return
+	}
+
+	seed, err := identity.MnemonicToSeed(words)
+	if err != nil {
+		writeJSON(w, map[string]string{"error": "Ошибка восстановления: " + err.Error()})
+		return
+	}
+
+	// Save seed
+	seedPath := a.DataDir + "/seed.key"
+	if err := os.WriteFile(seedPath, seed[:], 0600); err != nil {
+		writeJSON(w, map[string]string{"error": "Не удалось сохранить ключ"})
+		return
+	}
+
+	kp := identity.KeypairFromSeed(seed)
+	writeJSON(w, map[string]string{
+		"status": "ok",
+		"userID": identity.UserID(kp.Ed25519Pub),
+		"message": "Ключ восстановлен. Перезапустите приложение.",
+	})
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
