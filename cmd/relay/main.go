@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -68,6 +69,18 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 	}
 	defer conn.Close()
 
+	// Configure timeouts: expect ping from client every 25s, allow 60s grace
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+	conn.SetPingHandler(func(msg string) error {
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.WriteControl(websocket.PongMessage, []byte(msg), time.Now().Add(5*time.Second))
+		return nil
+	})
+
 	// First message: client sends their pubkey (32 bytes)
 	_, pubkeyMsg, err := conn.ReadMessage()
 	if err != nil || len(pubkeyMsg) != 32 {
@@ -96,6 +109,7 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 
 	// Read loop: each message is [recipientID:20][msgData:variable]
 	for {
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			break

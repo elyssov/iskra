@@ -2,6 +2,8 @@ package mesh
 
 import (
 	"fmt"
+	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -9,9 +11,16 @@ import (
 	"github.com/iskra-messenger/iskra/internal/message"
 )
 
+const (
+	relayPingInterval  = 25 * time.Second // Keep Render awake (sleeps after 50s)
+	relayReconnectWait = 10 * time.Second
+	relayWakeupDelay   = 2 * time.Second // Wait for cold start after wake-up HTTP ping
+)
+
 // RelayClient connects to a relay server for cross-network message delivery.
 type RelayClient struct {
 	url       string
+	httpURL   string // HTTPS URL for wake-up pings
 	pubKey    [32]byte
 	conn      *websocket.Conn
 	onMessage func(*message.Message)
@@ -22,10 +31,22 @@ type RelayClient struct {
 
 // NewRelayClient creates a relay client.
 func NewRelayClient(url string, pubKey [32]byte) *RelayClient {
+	// Derive HTTP URL from WebSocket URL for wake-up pings
+	// wss://host/ws → https://host/
+	httpURL := url
+	if len(httpURL) > 0 {
+		httpURL = "https" + httpURL[3:] // wss:// → https://
+		// Strip /ws path
+		if len(httpURL) > 4 && httpURL[len(httpURL)-3:] == "/ws" {
+			httpURL = httpURL[:len(httpURL)-3]
+		}
+	}
+
 	return &RelayClient{
-		url:    url,
-		pubKey: pubKey,
-		stop:   make(chan struct{}),
+		url:     url,
+		httpURL: httpURL,
+		pubKey:  pubKey,
+		stop:    make(chan struct{}),
 	}
 }
 
@@ -36,12 +57,15 @@ func (rc *RelayClient) SetOnMessage(fn func(*message.Message)) {
 
 // Start connects to the relay and begins reading messages.
 func (rc *RelayClient) Start() error {
+	// Wake up the relay first (cold start on Render free tier)
+	rc.wakeUp()
+
 	if err := rc.connect(); err != nil {
-		// Don't fail — retry in background
 		go rc.reconnectLoop()
 		return nil
 	}
 	go rc.readLoop()
+	go rc.pingLoop()
 	go rc.reconnectLoop()
 	return nil
 }
@@ -86,6 +110,20 @@ func (rc *RelayClient) BroadcastMessage(msg *message.Message) error {
 	return rc.SendMessage(msg)
 }
 
+// wakeUp sends an HTTP GET to the relay to wake it from Render's sleep.
+// First call wakes, we wait, then the WebSocket connect will succeed.
+func (rc *RelayClient) wakeUp() {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(rc.httpURL)
+	if err != nil {
+		log.Printf("Relay wake-up ping failed (will retry): %v", err)
+		return
+	}
+	resp.Body.Close()
+	// Give the service time to fully start after cold boot
+	time.Sleep(relayWakeupDelay)
+}
+
 func (rc *RelayClient) connect() error {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
@@ -104,6 +142,45 @@ func (rc *RelayClient) connect() error {
 	rc.conn = conn
 	rc.connected = true
 	return nil
+}
+
+// pingLoop sends WebSocket pings every 25s to keep Render awake and detect dead connections.
+func (rc *RelayClient) pingLoop() {
+	ticker := time.NewTicker(relayPingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-rc.stop:
+			return
+		case <-ticker.C:
+		}
+
+		rc.mu.Lock()
+		conn := rc.conn
+		isConn := rc.connected
+		rc.mu.Unlock()
+
+		if !isConn || conn == nil {
+			return
+		}
+
+		rc.mu.Lock()
+		err := conn.WriteMessage(websocket.PingMessage, []byte("iskra"))
+		rc.mu.Unlock()
+
+		if err != nil {
+			// Connection dead — mark disconnected, reconnectLoop will handle it
+			rc.mu.Lock()
+			rc.connected = false
+			if rc.conn != nil {
+				rc.conn.Close()
+				rc.conn = nil
+			}
+			rc.mu.Unlock()
+			return
+		}
+	}
 }
 
 func (rc *RelayClient) readLoop() {
@@ -154,7 +231,7 @@ func (rc *RelayClient) reconnectLoop() {
 		select {
 		case <-rc.stop:
 			return
-		case <-time.After(10 * time.Second):
+		case <-time.After(relayReconnectWait):
 		}
 
 		rc.mu.Lock()
@@ -162,8 +239,12 @@ func (rc *RelayClient) reconnectLoop() {
 		rc.mu.Unlock()
 
 		if !isConn {
+			// Wake up relay first (may be sleeping on Render)
+			rc.wakeUp()
+
 			if err := rc.connect(); err == nil {
 				go rc.readLoop()
+				go rc.pingLoop()
 			}
 		}
 	}
