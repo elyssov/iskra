@@ -851,6 +851,7 @@ func (a *API) HandleUnread(w http.ResponseWriter, r *http.Request) {
 
 	counts := make(map[string]int)
 	lastMsg := make(map[string]string)
+	lastTs := make(map[string]int64) // last message timestamp for sorting
 
 	// Contacts
 	for _, c := range a.Contacts.List() {
@@ -858,11 +859,15 @@ func (a *API) HandleUnread(w http.ResponseWriter, r *http.Request) {
 		lr := req.LastRead[c.UserID]
 		unread := 0
 		last := ""
+		var maxTs int64
 		for _, m := range msgs {
 			if !m.Outgoing && m.Timestamp > lr {
 				unread++
 			}
 			last = m.Text
+			if m.Timestamp > maxTs {
+				maxTs = m.Timestamp
+			}
 		}
 		if unread > 0 {
 			counts[c.UserID] = unread
@@ -873,6 +878,9 @@ func (a *API) HandleUnread(w http.ResponseWriter, r *http.Request) {
 			}
 			lastMsg[c.UserID] = last
 		}
+		if maxTs > 0 {
+			lastTs[c.UserID] = maxTs
+		}
 	}
 
 	// Groups
@@ -882,6 +890,7 @@ func (a *API) HandleUnread(w http.ResponseWriter, r *http.Request) {
 			lr := req.LastRead["g:"+g.ID]
 			unread := 0
 			last := ""
+			var maxTs int64
 			for _, m := range msgs {
 				if !m.Outgoing && m.Timestamp > lr {
 					unread++
@@ -893,15 +902,22 @@ func (a *API) HandleUnread(w http.ResponseWriter, r *http.Request) {
 						last = m.FromName + ": " + m.Text
 					}
 				}
+				if m.Timestamp > maxTs {
+					maxTs = m.Timestamp
+				}
 			}
+			key := "g:" + g.ID
 			if unread > 0 {
-				counts["g:"+g.ID] = unread
+				counts[key] = unread
 			}
 			if last != "" {
 				if len(last) > 40 {
 					last = last[:40] + "..."
 				}
-				lastMsg["g:"+g.ID] = last
+				lastMsg[key] = last
+			}
+			if maxTs > 0 {
+				lastTs[key] = maxTs
 			}
 		}
 	}
@@ -909,6 +925,7 @@ func (a *API) HandleUnread(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"counts":  counts,
 		"lastMsg": lastMsg,
+		"lastTs":  lastTs,
 	})
 }
 

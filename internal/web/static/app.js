@@ -8,6 +8,9 @@
   let unreadCounts = {}; // userID or groupID -> count
   let lastRenderedHTML = ''; // prevent flicker on re-render
   let replyingTo = null; // message object being replied to
+  let msgCache = {}; // userID -> messages array (instant switch)
+  let groupMsgCache = {}; // groupID -> messages array
+  let lastActivity = {}; // key -> timestamp (for sorting)
 
   // Цвета аватаров — теплые, различимые
   const avatarColors = [
@@ -141,11 +144,15 @@
       return;
     }
 
-    let html = '';
+    // Build unified list sorted by last activity (Telegram-style: most recent on top)
+    const items = [];
+    if (hasGroups) groups.forEach(g => items.push({type: 'group', data: g, ts: lastActivity['g:' + g.id] || 0}));
+    if (hasContacts) contacts.forEach(c => items.push({type: 'contact', data: c, ts: lastActivity[c.user_id] || 0}));
+    items.sort((a, b) => b.ts - a.ts);
 
-    // Groups first
-    if (hasGroups) {
-      html += groups.map(g => {
+    let html = items.map(item => {
+      if (item.type === 'group') {
+        const g = item.data;
         const active = currentGroup && currentGroup.id === g.id ? ' active' : '';
         const unread = unreadCounts['g:' + g.id] || 0;
         const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
@@ -157,12 +164,8 @@
             <div class="contact-last">${esc(preview)}</div>
           </div>
         </div>`;
-      }).join('');
-    }
-
-    // Contacts
-    if (hasContacts) {
-      html += contacts.map(c => {
+      } else {
+        const c = item.data;
         const initial = (c.name || '?')[0].toUpperCase();
         const color = getAvatarColor(c.name);
         const active = currentContact && currentContact.user_id === c.user_id ? ' active' : '';
@@ -176,8 +179,8 @@
             <div class="contact-last">${preview ? esc(preview) : c.user_id}</div>
           </div>
         </div>`;
-      }).join('');
-    }
+      }
+    }).join('');
 
     // Skip DOM rebuild if nothing changed (prevents flicker)
     if (html === lastRenderedHTML) return;
@@ -335,10 +338,17 @@
     document.getElementById('btn-delete-chat').style.display = 'inline-flex';
     document.getElementById('btn-rename-contact').style.display = 'none';
 
+    // Instant render from cache
+    if (groupMsgCache[group.id]) {
+      renderGroupMessages(groupMsgCache[group.id]);
+    } else {
+      document.getElementById('messages').innerHTML = '<div class="messages-empty">Загрузка...</div>';
+    }
+
     markAsRead('g:' + group.id);
     renderContacts();
     loadGroupMessages();
-    setTimeout(() => document.getElementById('msg-input').focus(), 100);
+    document.getElementById('msg-input').focus();
   }
 
   let lastGroupMsgJSON = '';
@@ -348,6 +358,10 @@
       const resp = await fetch(`/api/groups/messages/${currentGroup.id}`);
       const msgs = await resp.json();
       const json = JSON.stringify(msgs);
+      groupMsgCache[currentGroup.id] = msgs;
+      if (msgs && msgs.length > 0) {
+        lastActivity['g:' + currentGroup.id] = msgs[msgs.length - 1].timestamp;
+      }
       if (json !== lastGroupMsgJSON) {
         lastGroupMsgJSON = json;
         renderGroupMessages(msgs);
@@ -493,12 +507,19 @@
     document.getElementById('btn-delete-chat').style.display = 'inline-flex';
     document.getElementById('btn-rename-contact').style.display = 'inline-flex';
 
+    // Instant render from cache
+    if (msgCache[contact.user_id]) {
+      renderMessages(msgCache[contact.user_id]);
+    } else {
+      document.getElementById('messages').innerHTML = '<div class="messages-empty">Загрузка...</div>';
+    }
+
     // Mark as read
     markAsRead(contact.user_id);
 
     renderContacts();
     loadMessages();
-    setTimeout(() => document.getElementById('msg-input').focus(), 100);
+    document.getElementById('msg-input').focus();
   }
 
   let lastMsgJSON = '';
@@ -508,6 +529,10 @@
       const resp = await fetch(`/api/messages/${currentContact.user_id}`);
       const msgs = await resp.json();
       const json = JSON.stringify(msgs);
+      msgCache[currentContact.user_id] = msgs;
+      if (msgs && msgs.length > 0) {
+        lastActivity[currentContact.user_id] = msgs[msgs.length - 1].timestamp;
+      }
       if (json !== lastMsgJSON) {
         lastMsgJSON = json;
         renderMessages(msgs);
@@ -891,6 +916,10 @@
       const data = await resp.json();
       unreadCounts = data.counts || {};
       lastMessages = data.lastMsg || {};
+      // Update lastActivity from server timestamps for sorting
+      if (data.lastTs) {
+        Object.assign(lastActivity, data.lastTs);
+      }
       renderContacts();
     } catch(e) { /* ignore */ }
   }
