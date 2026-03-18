@@ -1,5 +1,4 @@
 dist/
-*.exe
 *.aar
 *.apk
 .iskra/
