@@ -1,0 +1,6 @@
+dist/
+*.exe
+*.aar
+*.apk
+.iskra/
+iskra-project.tar.gz

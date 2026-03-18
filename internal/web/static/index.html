@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Искра</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <!-- Sidebar: contacts -->
+  <div id="sidebar">
+    <div id="header">
+      <div id="app-title">🔥 Искра</div>
+      <div id="my-id" title="Мой ID"></div>
+      <div id="status-bar"></div>
+    </div>
+    <div id="contacts-list"></div>
+    <div id="sidebar-footer">
+      <button id="btn-add-contact" title="Добавить контакт">+ Контакт</button>
+      <button id="btn-show-id" title="Мой ID и мнемоника">🔑</button>
+      <button id="btn-import" title="Импорт контактов">📥</button>
+    </div>
+  </div>
+
+  <!-- Chat area -->
+  <div id="chat-area">
+    <div id="chat-header">
+      <button id="btn-back" class="mobile-only">←</button>
+      <span id="chat-contact-name">Выберите контакт</span>
+      <span id="chat-contact-status"></span>
+    </div>
+    <div id="messages"></div>
+    <div id="input-area" style="display:none">
+      <textarea id="msg-input" placeholder="Сообщение..." rows="1"></textarea>
+      <button id="btn-send">→</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Identity -->
+<div id="modal-id" class="modal" style="display:none">
+  <div class="modal-content">
+    <h3>Ваша Искра</h3>
+    <p><strong>ID:</strong> <span id="modal-user-id"></span></p>
+    <p><strong>Публичный ключ (Ed25519):</strong></p>
+    <code id="modal-pubkey"></code>
+    <p><strong>Ключ шифрования (X25519):</strong></p>
+    <code id="modal-x25519"></code>
+    <p><strong>Мнемоника (запишите!):</strong></p>
+    <div id="modal-mnemonic"></div>
+    <button onclick="closeModal('modal-id')">Закрыть</button>
+  </div>
+</div>
+
+<!-- Modal: Add Contact -->
+<div id="modal-add" class="modal" style="display:none">
+  <div class="modal-content">
+    <h3>Добавить контакт</h3>
+    <input id="add-name" placeholder="Имя" />
+    <input id="add-pubkey" placeholder="Публичный ключ (base58)" />
+    <input id="add-x25519" placeholder="Ключ шифрования X25519 (base58)" />
+    <button id="btn-add-save">Добавить</button>
+    <button onclick="closeModal('modal-add')">Отмена</button>
+  </div>
+</div>
+
+<!-- Modal: Import -->
+<div id="modal-import" class="modal" style="display:none">
+  <div class="modal-content">
+    <h3>Импорт контактов</h3>
+    <textarea id="import-json" placeholder='[{"name":"Алиса","publicKey":"...","x25519Key":"..."}]' rows="5"></textarea>
+    <button id="btn-import-save">Импортировать</button>
+    <button onclick="closeModal('modal-import')">Отмена</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
