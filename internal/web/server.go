@@ -34,6 +34,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/status", s.api.HandleStatus)
 	mux.HandleFunc("/api/import", s.api.HandleImport)
 	mux.HandleFunc("/api/restore", s.api.HandleRestore)
+	mux.HandleFunc("/api/online", s.api.HandleOnline)
 
 	// Static files
 	staticFS, err := fs.Sub(staticFiles, "static")

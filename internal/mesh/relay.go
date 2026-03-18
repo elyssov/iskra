@@ -50,6 +50,11 @@ func NewRelayClient(url string, pubKey [32]byte) *RelayClient {
 	}
 }
 
+// HTTPBaseURL returns the HTTPS base URL for the relay (for REST calls like /online).
+func (rc *RelayClient) HTTPBaseURL() string {
+	return rc.httpURL
+}
+
 // SetOnMessage sets the callback for messages received via relay.
 func (rc *RelayClient) SetOnMessage(fn func(*message.Message)) {
 	rc.onMessage = fn

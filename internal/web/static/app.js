@@ -34,6 +34,7 @@
 
     await loadContacts();
     await loadStatus();
+    loadOnline();
     startPolling();
     setupEvents();
   }
@@ -175,6 +176,27 @@
       }
 
       bar.innerHTML = parts.join(' · ');
+    } catch(e) {}
+  }
+
+  // === ONLINE ===
+  async function loadOnline() {
+    try {
+      const resp = await fetch('/api/online');
+      const data = await resp.json();
+      const section = document.getElementById('online-section');
+      const list = document.getElementById('online-list');
+
+      if (data.count > 0) {
+        section.style.display = 'block';
+        document.getElementById('online-header').textContent =
+          `В сети сейчас (${data.count}):`;
+        list.innerHTML = data.aliases.map(a =>
+          `<span class="online-alias">${esc(a)}</span>`
+        ).join('');
+      } else {
+        section.style.display = 'none';
+      }
     } catch(e) {}
   }
 
@@ -458,6 +480,7 @@
       if (currentContact) loadMessages();
       loadContacts();
       loadStatus();
+      loadOnline();
     }, 3000);
   }
 

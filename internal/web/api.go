@@ -326,6 +326,36 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 	}
 }
 
+// HandleOnline proxies the relay /online endpoint to avoid CORS issues.
+func (a *API) HandleOnline(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if a.RelayClient == nil {
+		writeJSON(w, map[string]interface{}{"count": 0, "aliases": []string{}})
+		return
+	}
+
+	relayHTTP := a.RelayClient.HTTPBaseURL()
+	if relayHTTP == "" {
+		writeJSON(w, map[string]interface{}{"count": 0, "aliases": []string{}})
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(relayHTTP + "/online")
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"count": 0, "aliases": []string{}})
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+	io.Copy(w, resp.Body)
+}
+
 // HandleRestore restores identity from mnemonic words.
 func (a *API) HandleRestore(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

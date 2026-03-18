@@ -282,6 +282,34 @@ body {
 .status-dot.offline { background: #fb923c; }
 
 /* Contacts */
+#online-section {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+  background: #f8f9fa;
+}
+#online-header {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-light);
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+#online-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.online-alias {
+  display: inline-block;
+  background: var(--green);
+  color: white;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
 #contacts-list { flex: 1; overflow-y: auto; }
 
 .contact-item {
