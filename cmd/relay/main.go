@@ -4,19 +4,26 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net"
+	"net/http"
+	"os"
+	"strconv"
 	"sync"
+
+	"github.com/gorilla/websocket"
 )
 
-// Relay is a minimal TCP relay for Iskra nodes.
-// Nodes connect, send their pubkey (20 bytes UserID), then send/receive messages.
-// The relay does NOT decrypt anything — it only routes encrypted blobs.
+// Relay — минимальный WebSocket relay для Искры.
+// Не логирует. Не расшифровывает. Не хранит на диск.
+// Просто передаёт зашифрованные блобы между клиентами.
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
 
 type relay struct {
-	clients map[string]net.Conn // UserID hex → connection
-	pending map[string][][]byte // UserID hex → queued messages
+	clients map[string]*websocket.Conn // UserID (hex of first 20 bytes pubkey) → connection
+	pending map[string][][]byte        // UserID → queued messages (max 1000)
 	mu      sync.RWMutex
 }
 
@@ -24,98 +31,115 @@ func main() {
 	port := flag.Int("port", 8443, "Listen port")
 	flag.Parse()
 
+	// Fly.io sets PORT env var
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil {
+			*port = p
+		}
+	}
+
 	r := &relay{
-		clients: make(map[string]net.Conn),
+		clients: make(map[string]*websocket.Conn),
 		pending: make(map[string][][]byte),
 	}
 
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
-	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
-	}
+	http.HandleFunc("/ws", r.handleWS)
+	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprintf(w, "Iskra Relay v0.1\n")
+	})
 
-	fmt.Printf("🔥 Искра Relay запущен на порту %d\n", *port)
+	addr := fmt.Sprintf(":%d", *port)
+	fmt.Printf("🔥 Искра Relay\n")
+	fmt.Printf("   Порт: %d\n", *port)
+	fmt.Printf("   WebSocket: ws://0.0.0.0:%d/ws\n", *port)
 	fmt.Println("   Не логирует. Не расшифровывает. Просто передаёт.")
+	fmt.Println()
 
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			continue
-		}
-		go r.handleClient(conn)
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		log.Fatalf("Failed to start: %v", err)
 	}
 }
 
-func (r *relay) handleClient(conn net.Conn) {
-	defer conn.Close()
-
-	// Read 20-byte UserID
-	idBuf := make([]byte, 20)
-	if _, err := io.ReadFull(conn, idBuf); err != nil {
+func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
+	conn, err := upgrader.Upgrade(w, req, nil)
+	if err != nil {
 		return
 	}
-	userID := fmt.Sprintf("%x", idBuf)
+	defer conn.Close()
 
-	// Register
-	r.mu.Lock()
-	r.clients[userID] = conn
-	// Send pending messages
-	for _, msg := range r.pending[userID] {
-		conn.Write(msg)
+	// First message: client sends their pubkey (32 bytes)
+	_, pubkeyMsg, err := conn.ReadMessage()
+	if err != nil || len(pubkeyMsg) != 32 {
+		return
 	}
+
+	// UserID = hex of first 20 bytes
+	userID := fmt.Sprintf("%x", pubkeyMsg[:20])
+
+	// Register client
+	r.mu.Lock()
+	oldConn, existed := r.clients[userID]
+	if existed && oldConn != nil {
+		oldConn.Close() // Close old connection
+	}
+	r.clients[userID] = conn
+
+	// Deliver pending messages
+	pending := r.pending[userID]
 	delete(r.pending, userID)
 	r.mu.Unlock()
 
-	defer func() {
-		r.mu.Lock()
-		delete(r.clients, userID)
-		r.mu.Unlock()
-	}()
+	for _, msg := range pending {
+		conn.WriteMessage(websocket.BinaryMessage, msg)
+	}
 
-	// Read messages: [recipientID:20][msgLen:4][msgData:variable]
+	// Read loop: each message is [recipientID:20][msgData:variable]
 	for {
-		// Read recipient ID
-		recipBuf := make([]byte, 20)
-		if _, err := io.ReadFull(conn, recipBuf); err != nil {
-			return
-		}
-		recipID := fmt.Sprintf("%x", recipBuf)
-
-		// Read message length
-		lenBuf := make([]byte, 4)
-		if _, err := io.ReadFull(conn, lenBuf); err != nil {
-			return
-		}
-		msgLen := binary.BigEndian.Uint32(lenBuf)
-		if msgLen > 1*1024*1024 { // Max 1MB
-			return
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			break
 		}
 
-		// Read message data
-		msgData := make([]byte, msgLen)
-		if _, err := io.ReadFull(conn, msgData); err != nil {
-			return
+		if len(data) < 20 {
+			continue
 		}
 
-		// Build frame: [msgLen:4][msgData:variable]
-		frame := make([]byte, 4+len(msgData))
-		binary.BigEndian.PutUint32(frame[:4], msgLen)
-		copy(frame[4:], msgData)
+		recipID := fmt.Sprintf("%x", data[:20])
+		msgData := data[20:]
 
-		// Route
+		// Build delivery frame: [senderID:20][msgData:variable]
+		frame := make([]byte, 20+len(msgData))
+		copy(frame[:20], pubkeyMsg[:20])
+		copy(frame[20:], msgData)
+
 		r.mu.RLock()
-		if target, ok := r.clients[recipID]; ok {
-			target.Write(frame)
+		target, online := r.clients[recipID]
+		r.mu.RUnlock()
+
+		if online {
+			target.WriteMessage(websocket.BinaryMessage, frame)
 		} else {
-			// Queue for later (max 100 per user)
-			r.mu.RUnlock()
+			// Queue for later delivery (max 1000 messages per user)
 			r.mu.Lock()
-			if len(r.pending[recipID]) < 100 {
+			if len(r.pending[recipID]) < 1000 {
 				r.pending[recipID] = append(r.pending[recipID], frame)
 			}
 			r.mu.Unlock()
-			continue
 		}
-		r.mu.RUnlock()
 	}
+
+	// Unregister
+	r.mu.Lock()
+	if r.clients[userID] == conn {
+		delete(r.clients, userID)
+	}
+	r.mu.Unlock()
+}
+
+// Helper for message framing (not used yet, reserved for future)
+func uint32Bytes(v uint32) []byte {
+	b := make([]byte, 4)
+	binary.BigEndian.PutUint32(b, v)
+	return b
 }

@@ -22,6 +22,7 @@ func main() {
 	dataDir := flag.String("data", defaultDataDir(), "Data directory")
 	debug := flag.Bool("debug", false, "Enable debug logging")
 	meshPort := flag.Int("mesh-port", 0, "Mesh transport port (0 = random)")
+	relayURL := flag.String("relay", "wss://iskra-relay.fly.dev/ws", "Relay server URL (ws://host:port/ws)")
 	restore := flag.String("restore", "", "Restore from mnemonic (24 words, space-separated)")
 	flag.Parse()
 
@@ -61,14 +62,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create hold: %v", err)
 	}
-
 	bloom := store.NewBloom(1000000, 0.001)
-
 	contacts, err := store.NewContacts(filepath.Join(*dataDir, "contacts.json"))
 	if err != nil {
 		log.Fatalf("Failed to load contacts: %v", err)
 	}
-
 	inbox, err := store.NewInbox(filepath.Join(*dataDir, "inbox"))
 	if err != nil {
 		log.Fatalf("Failed to create inbox: %v", err)
@@ -77,41 +75,55 @@ func main() {
 
 	// Initialize mesh
 	peers := mesh.NewPeerList()
-
 	transport := mesh.NewTransport(keypair.Ed25519Pub, uint16(*meshPort), peers)
 	if err := transport.Start(); err != nil {
 		log.Fatalf("Failed to start transport: %v", err)
 	}
 
-	// Initialize API
-	api := &web.API{
-		Keypair:   keypair,
-		Mnemonic:  mnemonic,
-		Contacts:  contacts,
-		Inbox:     inbox,
-		Hold:      hold,
-		Bloom:     bloom,
-		Peers:     peers,
-		Transport: transport,
-		Mode:      "lan",
+	// Determine mode
+	mode := "lan"
+
+	// Initialize relay if specified
+	var relayClient *mesh.RelayClient
+	if *relayURL != "" {
+		relayClient = mesh.NewRelayClient(*relayURL, keypair.Ed25519Pub)
+		mode = "relay"
 	}
 
-	// Set message handler
-	transport.SetOnMessage(func(msg *message.Message) {
-		// Check bloom filter
+	// Initialize API
+	api := &web.API{
+		Keypair:     keypair,
+		Mnemonic:    mnemonic,
+		Contacts:    contacts,
+		Inbox:       inbox,
+		Hold:        hold,
+		Bloom:       bloom,
+		Peers:       peers,
+		Transport:   transport,
+		RelayClient: relayClient,
+		Mode:        mode,
+	}
+
+	// Message handler (shared between transport and relay)
+	handleMessage := func(msg *message.Message) {
 		if bloom.Contains(msg.ID) {
 			return
 		}
 		bloom.Add(msg.ID)
-
-		// Process: decrypt if for us, store in hold if not
 		api.HandleIncomingMessage(msg)
-
-		// Forward to other peers if not for us
 		if !msg.IsForRecipient(keypair.Ed25519Pub) {
 			hold.Store(msg)
 		}
-	})
+	}
+
+	// Set message handlers
+	transport.SetOnMessage(handleMessage)
+	if relayClient != nil {
+		relayClient.SetOnMessage(handleMessage)
+		if err := relayClient.Start(); err != nil {
+			log.Printf("Relay: will retry in background")
+		}
+	}
 
 	// Start LAN discovery
 	discovery := mesh.NewDiscovery(keypair.Ed25519Pub, transport.Port(), peers)
@@ -119,7 +131,6 @@ func main() {
 		if *debug {
 			log.Printf("Discovered peer: %s:%d", ip, peerPort)
 		}
-		// Connect and sync
 		go func() {
 			holdMsgs, _ := hold.GetAll()
 			transport.ConnectAndSync(ip, peerPort, bloom.Export(), holdMsgs)
@@ -134,10 +145,13 @@ func main() {
 	}
 
 	fmt.Printf("\n🔥 Искра запущена\n")
-	fmt.Printf("   ID:   %s\n", userID)
-	fmt.Printf("   UI:   http://localhost:%d\n", server.Port())
-	fmt.Printf("   Mesh: порт %d\n", transport.Port())
-	fmt.Printf("   Пиры: ожидание...\n\n")
+	fmt.Printf("   ID:    %s\n", userID)
+	fmt.Printf("   UI:    http://localhost:%d\n", server.Port())
+	fmt.Printf("   Mesh:  порт %d\n", transport.Port())
+	if *relayURL != "" {
+		fmt.Printf("   Relay: %s\n", *relayURL)
+	}
+	fmt.Printf("   Режим: %s\n\n", mode)
 
 	// Wait for shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -148,37 +162,33 @@ func main() {
 	inbox.Save(filepath.Join(*dataDir, "inbox.json"))
 	discovery.Stop()
 	transport.Stop()
+	if relayClient != nil {
+		relayClient.Stop()
+	}
 	server.Stop()
 	fmt.Println("Готово.")
 }
 
 func loadOrCreateKeypair(dataDir string) (*identity.Keypair, []string, bool) {
 	seedPath := filepath.Join(dataDir, "seed.key")
-
-	// Try to load existing seed
 	data, err := os.ReadFile(seedPath)
 	if err == nil && len(data) == 32 {
 		var seed [32]byte
 		copy(seed[:], data)
 		kp := identity.KeypairFromSeed(seed)
-		mnemonic := identity.SeedToMnemonic(seed)
-		return kp, mnemonic, false
+		return kp, identity.SeedToMnemonic(seed), false
 	}
 
-	// Generate new mnemonic-compatible seed
 	seed, err := identity.GenerateMnemonicSeed()
 	if err != nil {
 		log.Fatalf("Failed to generate seed: %v", err)
 	}
-
-	// Save seed
 	if err := os.WriteFile(seedPath, seed[:], 0600); err != nil {
 		log.Fatalf("Failed to save seed: %v", err)
 	}
 
 	kp := identity.KeypairFromSeed(seed)
-	mnemonic := identity.SeedToMnemonic(seed)
-	return kp, mnemonic, true
+	return kp, identity.SeedToMnemonic(seed), true
 }
 
 func restoreFromMnemonic(dataDir, mnemonicStr string) {
@@ -186,22 +196,17 @@ func restoreFromMnemonic(dataDir, mnemonicStr string) {
 	if len(words) != 24 {
 		log.Fatalf("Мнемоника должна содержать 24 слова, получено %d", len(words))
 	}
-
 	if !identity.ValidateMnemonic(words) {
 		log.Fatal("Невалидная мнемоника")
 	}
-
 	seed, err := identity.MnemonicToSeed(words)
 	if err != nil {
 		log.Fatalf("Ошибка восстановления: %v", err)
 	}
-
 	os.MkdirAll(dataDir, 0700)
-	seedPath := filepath.Join(dataDir, "seed.key")
-	if err := os.WriteFile(seedPath, seed[:], 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir, "seed.key"), seed[:], 0600); err != nil {
 		log.Fatalf("Не удалось сохранить ключ: %v", err)
 	}
-
 	kp := identity.KeypairFromSeed(seed)
 	fmt.Printf("✓ Ключ восстановлен. ID: %s\n", identity.UserID(kp.Ed25519Pub))
 }

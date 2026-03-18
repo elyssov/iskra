@@ -17,15 +17,16 @@ import (
 
 // API handles REST API requests.
 type API struct {
-	Keypair   *identity.Keypair
-	Mnemonic  []string
-	Contacts  *store.Contacts
-	Inbox     *store.Inbox
-	Hold      *store.Hold
-	Bloom     *store.SimpleBloom
-	Peers     *mesh.PeerList
-	Transport *mesh.Transport
-	Mode      string // "lan", "relay", "offline"
+	Keypair     *identity.Keypair
+	Mnemonic    []string
+	Contacts    *store.Contacts
+	Inbox       *store.Inbox
+	Hold        *store.Hold
+	Bloom       *store.SimpleBloom
+	Peers       *mesh.PeerList
+	Transport   *mesh.Transport
+	RelayClient *mesh.RelayClient
+	Mode        string // "lan", "relay", "offline"
 }
 
 type identityResponse struct {
@@ -179,6 +180,11 @@ func (a *API) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			a.Transport.BroadcastMessage(msg)
 		}
 
+		// Send via relay if connected
+		if a.RelayClient != nil && a.RelayClient.IsConnected() {
+			a.RelayClient.SendMessage(msg)
+		}
+
 		writeJSON(w, map[string]string{
 			"status": "sent",
 			"id":     hex.EncodeToString(msg.ID[:]),
@@ -196,8 +202,15 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	mode := a.Mode
+	if a.RelayClient != nil && a.RelayClient.IsConnected() {
+		mode = "relay"
+	} else if a.Peers.Count() > 0 {
+		mode = "lan"
+	}
+
 	resp := statusResponse{
-		Mode:     a.Mode,
+		Mode:     mode,
 		Peers:    a.Peers.Count(),
 		HoldSize: a.Hold.Count(),
 		Version:  "0.1.0-alpha",
