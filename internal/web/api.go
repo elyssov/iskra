@@ -18,7 +18,7 @@ import (
 )
 
 // Build number — increment on each iteration
-const BuildNumber = 4
+const BuildNumber = 5
 
 // API handles REST API requests.
 type API struct {
@@ -825,6 +825,83 @@ func (a *API) sendGroupInvites(group *store.Group) {
 
 		log.Printf("[Group] Sent invite to %s for group %s", member.UserID[:8], group.Name)
 	}
+}
+
+// HandleUnread returns unread counts for all contacts and groups in one call.
+func (a *API) HandleUnread(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		LastRead map[string]int64 `json:"lastRead"` // key -> timestamp
+	}
+	if err := readJSON(r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	counts := make(map[string]int)
+	lastMsg := make(map[string]string)
+
+	// Contacts
+	for _, c := range a.Contacts.List() {
+		msgs := a.Inbox.GetMessages(c.UserID)
+		lr := req.LastRead[c.UserID]
+		unread := 0
+		last := ""
+		for _, m := range msgs {
+			if !m.Outgoing && m.Timestamp > lr {
+				unread++
+			}
+			last = m.Text
+		}
+		if unread > 0 {
+			counts[c.UserID] = unread
+		}
+		if last != "" {
+			if len(last) > 40 {
+				last = last[:40] + "..."
+			}
+			lastMsg[c.UserID] = last
+		}
+	}
+
+	// Groups
+	if a.Groups != nil {
+		for _, g := range a.Groups.List() {
+			msgs := a.Groups.GetMessages(g.ID)
+			lr := req.LastRead["g:"+g.ID]
+			unread := 0
+			last := ""
+			for _, m := range msgs {
+				if !m.Outgoing && m.Timestamp > lr {
+					unread++
+				}
+				if m.Text != "" {
+					if m.Outgoing {
+						last = "Вы: " + m.Text
+					} else {
+						last = m.FromName + ": " + m.Text
+					}
+				}
+			}
+			if unread > 0 {
+				counts["g:"+g.ID] = unread
+			}
+			if last != "" {
+				if len(last) > 40 {
+					last = last[:40] + "..."
+				}
+				lastMsg["g:"+g.ID] = last
+			}
+		}
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"counts":  counts,
+		"lastMsg": lastMsg,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

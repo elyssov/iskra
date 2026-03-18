@@ -144,12 +144,12 @@
         const active = currentGroup && currentGroup.id === g.id ? ' active' : '';
         const unread = unreadCounts['g:' + g.id] || 0;
         const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
-        const memberCount = g.members ? g.members.length : 0;
+        const preview = lastMessages['g:' + g.id] || (g.members ? g.members.length + ' участников' : '');
         return `<div class="contact-item group-item${active}" data-gid="${g.id}">
           <div class="contact-avatar" style="background:#6c5ce7">&#128101;</div>
           <div class="contact-info">
             <div class="contact-name">${esc(g.name)}${badge}</div>
-            <div class="contact-last">${memberCount} участников</div>
+            <div class="contact-last">${esc(preview)}</div>
           </div>
         </div>`;
       }).join('');
@@ -163,11 +163,12 @@
         const active = currentContact && currentContact.user_id === c.user_id ? ' active' : '';
         const unread = unreadCounts[c.user_id] || 0;
         const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
+        const preview = lastMessages[c.user_id] || '';
         return `<div class="contact-item${active}" data-uid="${c.user_id}">
           <div class="contact-avatar" style="background:${color}">${initial}</div>
           <div class="contact-info">
             <div class="contact-name">${esc(c.name)}${badge}</div>
-            <div class="contact-last">${c.user_id}</div>
+            <div class="contact-last">${preview ? esc(preview) : c.user_id}</div>
           </div>
         </div>`;
       }).join('');
@@ -751,28 +752,39 @@
   }
 
   // === UNREAD TRACKING ===
-  function getLastRead(userID) {
-    return parseInt(localStorage.getItem('iskra-lastread-' + userID) || '0', 10);
+  let lastMessages = {}; // key -> last message preview
+
+  function getLastRead(key) {
+    return parseInt(localStorage.getItem('iskra-lastread-' + key) || '0', 10);
   }
 
-  function markAsRead(userID) {
-    localStorage.setItem('iskra-lastread-' + userID, Math.floor(Date.now() / 1000).toString());
-    unreadCounts[userID] = 0;
+  function markAsRead(key) {
+    localStorage.setItem('iskra-lastread-' + key, Math.floor(Date.now() / 1000).toString());
+    unreadCounts[key] = 0;
     renderContacts();
   }
 
   async function updateUnreadCounts() {
+    // Build lastRead map from localStorage
+    const lastRead = {};
     for (const c of contacts) {
-      try {
-        const resp = await fetch(`/api/messages/${c.user_id}`);
-        const msgs = await resp.json();
-        if (!msgs || msgs.length === 0) { unreadCounts[c.user_id] = 0; continue; }
-        const lastRead = getLastRead(c.user_id);
-        const unread = msgs.filter(m => !m.outgoing && m.timestamp > lastRead).length;
-        unreadCounts[c.user_id] = unread;
-      } catch(e) { /* ignore */ }
+      lastRead[c.user_id] = getLastRead(c.user_id);
     }
-    renderContacts();
+    for (const g of groups) {
+      lastRead['g:' + g.id] = getLastRead('g:' + g.id);
+    }
+
+    try {
+      const resp = await fetch('/api/unread', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({lastRead})
+      });
+      const data = await resp.json();
+      unreadCounts = data.counts || {};
+      lastMessages = data.lastMsg || {};
+      renderContacts();
+    } catch(e) { /* ignore */ }
   }
 
   function startPolling() {

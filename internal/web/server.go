@@ -40,6 +40,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/groups", s.api.HandleGroups)
 	mux.HandleFunc("/api/groups/messages/", s.api.HandleGroupMessages)
 	mux.HandleFunc("/api/groups/delete/", s.api.HandleDeleteGroup)
+	mux.HandleFunc("/api/unread", s.api.HandleUnread)
 
 	// Static files
 	staticFS, err := fs.Sub(staticFiles, "static")
