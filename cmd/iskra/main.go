@@ -26,9 +26,8 @@ func main() {
 	restore := flag.String("restore", "", "Restore from mnemonic (24 words, space-separated)")
 	flag.Parse()
 
-	if !*debug {
-		log.SetOutput(os.Stderr)
-	}
+	// Alpha: always log to stderr for debugging
+	log.SetOutput(os.Stderr)
 
 	// Handle mnemonic restore
 	if *restore != "" {
@@ -108,11 +107,14 @@ func main() {
 	// Message handler (shared between transport and relay)
 	handleMessage := func(msg *message.Message) {
 		if bloom.Contains(msg.ID) {
+			log.Printf("[MSG] Duplicate message, skipping")
 			return
 		}
 		bloom.Add(msg.ID)
+		forMe := msg.IsForRecipient(keypair.Ed25519Pub)
+		log.Printf("[MSG] Received message id=%x forMe=%v type=%d", msg.ID[:4], forMe, msg.ContentType)
 		api.HandleIncomingMessage(msg)
-		if !msg.IsForRecipient(keypair.Ed25519Pub) {
+		if !forMe {
 			hold.Store(msg)
 		}
 	}

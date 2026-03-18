@@ -133,6 +133,7 @@ func (rc *RelayClient) connect() error {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
+	log.Printf("[Relay] Connecting to %s...", rc.url)
 	conn, _, err := websocket.DefaultDialer.Dial(rc.url, nil)
 	if err != nil {
 		return fmt.Errorf("relay connect failed: %w", err)
@@ -146,6 +147,7 @@ func (rc *RelayClient) connect() error {
 
 	rc.conn = conn
 	rc.connected = true
+	log.Printf("[Relay] Connected!")
 	return nil
 }
 

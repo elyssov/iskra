@@ -3,6 +3,7 @@ package mesh
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"net"
 	"time"
 )
@@ -10,7 +11,7 @@ import (
 const (
 	MulticastAddr    = "239.42.42.42:4242"
 	BeaconMagic      = "ISKRA1"
-	BeaconInterval   = 60 * time.Second
+	BeaconInterval   = 5 * time.Second // Aggressive for alpha — find peers fast
 	BeaconSize       = 6 + 32 + 2 + 1 + 8 // magic + pubkey + port + version + timestamp = 49 bytes
 )
 
@@ -87,11 +88,13 @@ func (d *Discovery) send() {
 
 	conn, err := net.DialUDP("udp4", nil, addr)
 	if err != nil {
+		log.Printf("[Discovery] Failed to dial multicast: %v", err)
 		return
 	}
 	defer conn.Close()
 
 	// Send immediately on start
+	log.Printf("[Discovery] Sending beacon to %s (port %d)", MulticastAddr, d.listenPort)
 	conn.Write(d.makeBeacon())
 
 	ticker := time.NewTicker(BeaconInterval)
@@ -115,9 +118,11 @@ func (d *Discovery) listen() {
 
 	conn, err := net.ListenMulticastUDP("udp4", nil, addr)
 	if err != nil {
+		log.Printf("[Discovery] Failed to listen multicast: %v", err)
 		return
 	}
 	defer conn.Close()
+	log.Printf("[Discovery] Listening for beacons on %s", MulticastAddr)
 
 	conn.SetReadBuffer(1024)
 
@@ -146,6 +151,7 @@ func (d *Discovery) listen() {
 		}
 
 		ip := src.IP.String()
+		log.Printf("[Discovery] Found peer %s:%d", ip, port)
 		d.peers.AddOrUpdate(pubKey, ip, port)
 
 		if d.onPeer != nil {

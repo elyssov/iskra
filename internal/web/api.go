@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -181,11 +182,18 @@ func (a *API) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		// Broadcast to connected peers
 		if a.Transport != nil {
 			a.Transport.BroadcastMessage(msg)
+			log.Printf("[Send] Broadcast to %d LAN peers", a.Peers.Count())
 		}
 
 		// Send via relay if connected
 		if a.RelayClient != nil && a.RelayClient.IsConnected() {
-			a.RelayClient.SendMessage(msg)
+			if err := a.RelayClient.SendMessage(msg); err != nil {
+				log.Printf("[Send] Relay send failed: %v", err)
+			} else {
+				log.Printf("[Send] Sent via relay, recipientID=%x", msg.RecipientID[:])
+			}
+		} else {
+			log.Printf("[Send] Relay not connected, message stored in hold")
 		}
 
 		writeJSON(w, map[string]string{
@@ -287,8 +295,10 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 		}
 		plaintext, err := iskraCrypto.Decrypt(a.Keypair.X25519Private, payload)
 		if err != nil {
-			return // Can't decrypt — not really for us or corrupted
+			log.Printf("[Recv] Decryption failed: %v", err)
+			return
 		}
+		log.Printf("[Recv] Decrypted message, type=%d, len=%d", msg.ContentType, len(plaintext))
 
 		// Handle by content type
 		switch msg.ContentType {
