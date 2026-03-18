@@ -22,7 +22,7 @@ func main() {
 	dataDir := flag.String("data", defaultDataDir(), "Data directory")
 	debug := flag.Bool("debug", false, "Enable debug logging")
 	meshPort := flag.Int("mesh-port", 0, "Mesh transport port (0 = random)")
-	relayURL := flag.String("relay", "wss://iskra-relay.fly.dev/ws", "Relay server URL (ws://host:port/ws)")
+	relayURL := flag.String("relay", "wss://iskra-relay.onrender.com/ws", "Relay server URL (wss://host/ws)")
 	restore := flag.String("restore", "", "Restore from mnemonic (24 words, space-separated)")
 	flag.Parse()
 

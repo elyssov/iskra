@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: iskra-relay
+    runtime: docker
+    dockerfilePath: ./Dockerfile.relay
+    region: frankfurt
+    plan: free
+    envVars:
+      - key: PORT
+        value: "10000"

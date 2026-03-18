@@ -8,6 +8,6 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /relay ./
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates
 COPY --from=builder /relay /relay
-EXPOSE 8443
+EXPOSE 10000
 ENTRYPOINT ["/relay"]
-CMD ["-port", "8443"]
+CMD ["-port", "10000"]
