@@ -6,6 +6,7 @@
   let groups = [];
   let pollTimer = null;
   let unreadCounts = {}; // userID or groupID -> count
+  let lastRenderedHTML = ''; // prevent flicker on re-render
 
   // Цвета аватаров — теплые, различимые
   const avatarColors = [
@@ -117,8 +118,11 @@
   async function loadContacts() {
     try {
       const resp = await fetch('/api/contacts');
-      contacts = await resp.json();
-      renderContacts();
+      const newContacts = await resp.json();
+      if (JSON.stringify(newContacts) !== JSON.stringify(contacts)) {
+        contacts = newContacts;
+        renderContacts();
+      }
     } catch(e) {}
   }
 
@@ -174,6 +178,9 @@
       }).join('');
     }
 
+    // Skip DOM rebuild if nothing changed (prevents flicker)
+    if (html === lastRenderedHTML) return;
+    lastRenderedHTML = html;
     list.innerHTML = html;
 
     // Contact click handlers
@@ -315,6 +322,8 @@
   function openGroupChat(group) {
     currentContact = null;
     currentGroup = group;
+    lastMsgJSON = '';
+    lastGroupMsgJSON = '';
     document.getElementById('chat-contact-name').textContent = group.name;
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
@@ -328,14 +337,19 @@
     setTimeout(() => document.getElementById('msg-input').focus(), 100);
   }
 
+  let lastGroupMsgJSON = '';
   async function loadGroupMessages() {
     if (!currentGroup) return;
     try {
       const resp = await fetch(`/api/groups/messages/${currentGroup.id}`);
       const msgs = await resp.json();
-      renderGroupMessages(msgs);
-      if (msgs && msgs.length > 0) {
-        markAsRead('g:' + currentGroup.id);
+      const json = JSON.stringify(msgs);
+      if (json !== lastGroupMsgJSON) {
+        lastGroupMsgJSON = json;
+        renderGroupMessages(msgs);
+        if (msgs && msgs.length > 0) {
+          markAsRead('g:' + currentGroup.id);
+        }
       }
     } catch(e) {}
   }
@@ -380,6 +394,8 @@
   function openChat(contact) {
     currentContact = contact;
     currentGroup = null;
+    lastMsgJSON = '';
+    lastGroupMsgJSON = '';
     document.getElementById('chat-contact-name').textContent = contact.name;
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
@@ -397,15 +413,19 @@
     setTimeout(() => document.getElementById('msg-input').focus(), 100);
   }
 
+  let lastMsgJSON = '';
   async function loadMessages() {
     if (!currentContact) return;
     try {
       const resp = await fetch(`/api/messages/${currentContact.user_id}`);
       const msgs = await resp.json();
-      renderMessages(msgs);
-      // Keep marking as read while chat is open
-      if (msgs && msgs.length > 0) {
-        markAsRead(currentContact.user_id);
+      const json = JSON.stringify(msgs);
+      if (json !== lastMsgJSON) {
+        lastMsgJSON = json;
+        renderMessages(msgs);
+        if (msgs && msgs.length > 0) {
+          markAsRead(currentContact.user_id);
+        }
       }
     } catch(e) {}
   }
