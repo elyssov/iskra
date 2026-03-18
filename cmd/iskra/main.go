@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/iskra-messenger/iskra/internal/identity"
@@ -21,10 +22,16 @@ func main() {
 	dataDir := flag.String("data", defaultDataDir(), "Data directory")
 	debug := flag.Bool("debug", false, "Enable debug logging")
 	meshPort := flag.Int("mesh-port", 0, "Mesh transport port (0 = random)")
+	restore := flag.String("restore", "", "Restore from mnemonic (24 words, space-separated)")
 	flag.Parse()
 
 	if !*debug {
 		log.SetOutput(os.Stderr)
+	}
+
+	// Handle mnemonic restore
+	if *restore != "" {
+		restoreFromMnemonic(*dataDir, *restore)
 	}
 
 	// Ensure data directory exists
@@ -172,6 +179,31 @@ func loadOrCreateKeypair(dataDir string) (*identity.Keypair, []string, bool) {
 	kp := identity.KeypairFromSeed(seed)
 	mnemonic := identity.SeedToMnemonic(seed)
 	return kp, mnemonic, true
+}
+
+func restoreFromMnemonic(dataDir, mnemonicStr string) {
+	words := strings.Fields(mnemonicStr)
+	if len(words) != 24 {
+		log.Fatalf("Мнемоника должна содержать 24 слова, получено %d", len(words))
+	}
+
+	if !identity.ValidateMnemonic(words) {
+		log.Fatal("Невалидная мнемоника")
+	}
+
+	seed, err := identity.MnemonicToSeed(words)
+	if err != nil {
+		log.Fatalf("Ошибка восстановления: %v", err)
+	}
+
+	os.MkdirAll(dataDir, 0700)
+	seedPath := filepath.Join(dataDir, "seed.key")
+	if err := os.WriteFile(seedPath, seed[:], 0600); err != nil {
+		log.Fatalf("Не удалось сохранить ключ: %v", err)
+	}
+
+	kp := identity.KeypairFromSeed(seed)
+	fmt.Printf("✓ Ключ восстановлен. ID: %s\n", identity.UserID(kp.Ed25519Pub))
 }
 
 func defaultDataDir() string {
