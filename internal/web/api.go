@@ -18,7 +18,7 @@ import (
 )
 
 // Build number — increment on each iteration
-const BuildNumber = 6
+const BuildNumber = 7
 
 // API handles REST API requests.
 type API struct {
@@ -679,7 +679,12 @@ func (a *API) HandleGroupMessages(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, msgs)
 
 	case http.MethodPost:
-		var req messageRequest
+		var req struct {
+			Text      string `json:"text"`
+			ReplyTo   string `json:"replyTo"`
+			ReplyText string `json:"replyText"`
+			ReplyFrom string `json:"replyFrom"`
+		}
 		if err := readJSON(r, &req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -708,6 +713,9 @@ func (a *API) HandleGroupMessages(w http.ResponseWriter, r *http.Request) {
 			Text:      req.Text,
 			Timestamp: time.Now().Unix(),
 			Outgoing:  true,
+			ReplyTo:   req.ReplyTo,
+			ReplyText: req.ReplyText,
+			ReplyFrom: req.ReplyFrom,
 		})
 
 		// Payload: groupID (hex, 64 chars) + "|" + text

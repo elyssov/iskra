@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Flame shape -->
+    <path
+        android:fillColor="#FF6366F1"
+        android:pathData="M54,20 C54,20 40,40 40,55 C40,62.7 46.3,69 54,69 C61.7,69 68,62.7 68,55 C68,40 54,20 54,20 Z" />
+    <path
+        android:fillColor="#FFA5B4FC"
+        android:pathData="M54,35 C54,35 46,48 46,55 C46,59.4 49.6,63 54,63 C58.4,63 62,59.4 62,55 C62,48 54,35 54,35 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,45 C54,45 50,52 50,55 C50,57.2 51.8,59 54,59 C56.2,59 58,57.2 58,55 C58,52 54,45 54,45 Z" />
+</vector>

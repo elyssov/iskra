@@ -7,6 +7,7 @@
   let pollTimer = null;
   let unreadCounts = {}; // userID or groupID -> count
   let lastRenderedHTML = ''; // prevent flicker on re-render
+  let replyingTo = null; // message object being replied to
 
   // Цвета аватаров — теплые, различимые
   const avatarColors = [
@@ -324,6 +325,9 @@
     currentGroup = group;
     lastMsgJSON = '';
     lastGroupMsgJSON = '';
+    replyingTo = null;
+    const rp = document.getElementById('reply-preview');
+    if (rp) rp.style.display = 'none';
     document.getElementById('chat-contact-name').textContent = group.name;
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
@@ -360,18 +364,88 @@
       container.innerHTML = '<div class="messages-empty">Групповой чат создан. Напишите первое сообщение!</div>';
       return;
     }
-    container.innerHTML = msgs.map(m => {
+    container.innerHTML = msgs.map((m, idx) => {
       const cls = m.outgoing ? 'out' : 'in';
       const time = formatTime(m.timestamp);
       const sender = m.outgoing ? '' : `<div class="group-sender" style="color:${getAvatarColor(m.from_name)}">${esc(m.from_name)}</div>`;
-      return `<div class="message ${cls}">
+      let replyBlock = '';
+      if (m.reply_to) {
+        const previewText = m.reply_text ? (m.reply_text.length > 60 ? m.reply_text.substring(0, 60) + '...' : m.reply_text) : '';
+        replyBlock = `<div class="message-reply-quote" data-reply-id="${m.reply_to}">
+          <div class="reply-quote-from">${esc(m.reply_from || '')}</div>
+          <div class="reply-quote-text">${esc(previewText)}</div>
+        </div>`;
+      }
+      return `<div class="message ${cls}" data-msg-idx="${idx}">
         ${sender}
+        ${replyBlock}
         <div>${esc(m.text)}</div>
         <div class="meta"><span>${time}</span></div>
       </div>`;
     }).join('');
+
+    // Click on incoming messages to reply
+    container.querySelectorAll('.message.in').forEach(el => {
+      el.addEventListener('click', (e) => {
+        // Don't trigger reply when clicking on the quote itself (scroll to original instead)
+        if (e.target.closest('.message-reply-quote')) {
+          const replyId = e.target.closest('.message-reply-quote').dataset.replyId;
+          scrollToMessage(replyId, msgs);
+          return;
+        }
+        const idx = parseInt(el.dataset.msgIdx);
+        if (msgs[idx]) setReplyingTo(msgs[idx]);
+      });
+    });
+
+    // Click on reply quotes in outgoing messages to scroll to original
+    container.querySelectorAll('.message.out .message-reply-quote').forEach(el => {
+      el.addEventListener('click', () => {
+        scrollToMessage(el.dataset.replyId, msgs);
+      });
+    });
+
     container.scrollTop = container.scrollHeight;
   }
+
+  function scrollToMessage(msgId, msgs) {
+    const idx = msgs.findIndex(m => m.id === msgId);
+    if (idx === -1) return;
+    const container = document.getElementById('messages');
+    const msgEl = container.querySelector(`[data-msg-idx="${idx}"]`);
+    if (msgEl) {
+      msgEl.scrollIntoView({behavior: 'smooth', block: 'center'});
+      msgEl.classList.add('message-highlight');
+      setTimeout(() => msgEl.classList.remove('message-highlight'), 1500);
+    }
+  }
+
+  function setReplyingTo(msg) {
+    replyingTo = msg;
+    let preview = document.getElementById('reply-preview');
+    if (!preview) {
+      preview = document.createElement('div');
+      preview.id = 'reply-preview';
+      preview.className = 'reply-preview';
+      const inputArea = document.getElementById('input-area');
+      inputArea.parentNode.insertBefore(preview, inputArea);
+    }
+    const previewText = msg.text.length > 80 ? msg.text.substring(0, 80) + '...' : msg.text;
+    const senderName = msg.outgoing ? 'Вы' : (msg.from_name || msg.from);
+    preview.innerHTML = `<div class="reply-preview-content">
+      <div class="reply-preview-sender">${esc(senderName)}</div>
+      <div class="reply-preview-text">${esc(previewText)}</div>
+    </div>
+    <button class="reply-preview-cancel" onclick="window._cancelReply()">&times;</button>`;
+    preview.style.display = 'flex';
+    document.getElementById('msg-input').focus();
+  }
+
+  window._cancelReply = function() {
+    replyingTo = null;
+    const preview = document.getElementById('reply-preview');
+    if (preview) preview.style.display = 'none';
+  };
 
   async function sendGroupMessage() {
     if (!currentGroup) return;
@@ -380,11 +454,22 @@
     if (!text) return;
     input.value = '';
     input.style.height = 'auto';
+
+    const body = {text};
+    if (replyingTo) {
+      body.replyTo = replyingTo.id;
+      body.replyText = replyingTo.text.length > 100 ? replyingTo.text.substring(0, 100) : replyingTo.text;
+      body.replyFrom = replyingTo.outgoing ? 'Вы' : (replyingTo.from_name || replyingTo.from);
+      replyingTo = null;
+      const preview = document.getElementById('reply-preview');
+      if (preview) preview.style.display = 'none';
+    }
+
     try {
       await fetch(`/api/groups/messages/${currentGroup.id}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({text})
+        body: JSON.stringify(body)
       });
       loadGroupMessages();
     } catch(e) { console.error('Group send failed:', e); }
@@ -396,6 +481,9 @@
     currentGroup = null;
     lastMsgJSON = '';
     lastGroupMsgJSON = '';
+    replyingTo = null;
+    const rp = document.getElementById('reply-preview');
+    if (rp) rp.style.display = 'none';
     document.getElementById('chat-contact-name').textContent = contact.name;
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';

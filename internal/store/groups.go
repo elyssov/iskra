@@ -35,6 +35,9 @@ type GroupMessage struct {
 	Text      string `json:"text"`
 	Timestamp int64  `json:"timestamp"`
 	Outgoing  bool   `json:"outgoing"`
+	ReplyTo   string `json:"reply_to,omitempty"`   // ID of message being replied to
+	ReplyText string `json:"reply_text,omitempty"` // Preview text of replied message
+	ReplyFrom string `json:"reply_from,omitempty"` // Name of original sender
 }
 
 // Groups manages group chats.

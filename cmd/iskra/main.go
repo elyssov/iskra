@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/iskra-messenger/iskra/internal/firewall"
 	"github.com/iskra-messenger/iskra/internal/identity"
 	"github.com/iskra-messenger/iskra/internal/mesh"
 	"github.com/iskra-messenger/iskra/internal/message"
@@ -30,6 +31,9 @@ func main() {
 
 	// Alpha: always log to stderr for debugging
 	log.SetOutput(os.Stderr)
+
+	// Ensure Windows Firewall allows mesh traffic
+	firewall.EnsureFirewallRule("Iskra Messenger")
 
 	// Handle mnemonic restore
 	if *restore != "" {
