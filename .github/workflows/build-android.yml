@@ -1,0 +1,94 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build-aar:
+    name: Build Go .aar (gomobile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install gomobile
+        run: |
+          GOTOOLCHAIN=auto go install golang.org/x/mobile/cmd/gomobile@latest
+          GOTOOLCHAIN=auto go install golang.org/x/mobile/cmd/gobind@latest
+          gomobile init
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: sdkmanager "ndk;26.1.10909125"
+
+      - name: Build .aar
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
+        run: |
+          gomobile bind -target=android/arm64,android/arm -androidapi 24 \
+            -o android/app/libs/iskra.aar \
+            ./cmd/iskra-mobile/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iskra-aar
+          path: android/app/libs/iskra.aar
+
+  build-apk:
+    name: Build APK
+    needs: build-aar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: iskra-aar
+          path: android/app/libs/
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew 2>/dev/null || true
+          # Use gradle wrapper or install
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.4
+          fi
+          ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iskra-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+
+  build-linux:
+    name: Build Linux binaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build iskra
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/iskra-linux ./cmd/iskra/
+
+      - name: Build relay
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/relay-linux ./cmd/relay/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: dist/*-linux
