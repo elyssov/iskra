@@ -308,6 +308,11 @@ body {
   padding: 2px 8px;
   border-radius: 10px;
   font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.online-alias:hover {
+  background: var(--blue);
 }
 
 #contacts-list { flex: 1; overflow-y: auto; }

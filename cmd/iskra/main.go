@@ -85,7 +85,7 @@ func main() {
 	// Initialize relay if specified
 	var relayClient *mesh.RelayClient
 	if *relayURL != "" {
-		relayClient = mesh.NewRelayClient(*relayURL, keypair.Ed25519Pub)
+		relayClient = mesh.NewRelayClient(*relayURL, keypair.Ed25519Pub, keypair.X25519Pub)
 		mode = "relay"
 	}
 

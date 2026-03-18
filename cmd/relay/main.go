@@ -40,10 +40,16 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+type clientInfo struct {
+	conn      *websocket.Conn
+	edPub     [32]byte // Ed25519 pubkey
+	x25519Pub [32]byte // X25519 pubkey
+}
+
 type relay struct {
-	clients map[string]*websocket.Conn // UserID → connection
-	aliases map[string]string          // UserID → current alias
-	pending map[string][][]byte        // UserID → queued messages
+	clients map[string]*clientInfo   // UserID → client info
+	aliases map[string]string        // UserID → current alias
+	pending map[string][][]byte      // UserID → queued messages
 	mu      sync.RWMutex
 }
 
@@ -58,7 +64,7 @@ func main() {
 	}
 
 	r := &relay{
-		clients: make(map[string]*websocket.Conn),
+		clients: make(map[string]*clientInfo),
 		aliases: make(map[string]string),
 		pending: make(map[string][][]byte),
 	}
@@ -82,21 +88,33 @@ func main() {
 	}
 }
 
-// handleOnline returns list of currently connected aliases.
+type onlinePeer struct {
+	Alias  string `json:"alias"`
+	EdPub  string `json:"edPub"`
+	X25519 string `json:"x25519"`
+}
+
+// handleOnline returns list of currently connected peers with aliases and keys.
 func (r *relay) handleOnline(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	r.mu.RLock()
-	online := make([]string, 0, len(r.aliases))
-	for _, alias := range r.aliases {
-		online = append(online, alias)
+	peers := make([]onlinePeer, 0, len(r.aliases))
+	for uid, alias := range r.aliases {
+		if ci, ok := r.clients[uid]; ok {
+			peers = append(peers, onlinePeer{
+				Alias:  alias,
+				EdPub:  fmt.Sprintf("%x", ci.edPub),
+				X25519: fmt.Sprintf("%x", ci.x25519Pub),
+			})
+		}
 	}
 	r.mu.RUnlock()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"count":   len(online),
-		"aliases": online,
+		"count": len(peers),
+		"peers": peers,
 	})
 }
 
@@ -138,21 +156,27 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		return nil
 	})
 
-	// First message: client sends their pubkey (32 bytes)
+	// First message: client sends both pubkeys (64 bytes: ed25519 + x25519)
 	_, pubkeyMsg, err := conn.ReadMessage()
-	if err != nil || len(pubkeyMsg) != 32 {
+	if err != nil || (len(pubkeyMsg) != 32 && len(pubkeyMsg) != 64) {
 		return
 	}
 
-	userID := fmt.Sprintf("%x", pubkeyMsg[:20])
+	var edPub, x25519Pub [32]byte
+	copy(edPub[:], pubkeyMsg[:32])
+	if len(pubkeyMsg) == 64 {
+		copy(x25519Pub[:], pubkeyMsg[32:64])
+	}
+
+	userID := fmt.Sprintf("%x", edPub[:20])
 
 	// Register client with alias
 	r.mu.Lock()
-	oldConn, existed := r.clients[userID]
-	if existed && oldConn != nil {
-		oldConn.Close()
+	oldCI, existed := r.clients[userID]
+	if existed && oldCI != nil {
+		oldCI.conn.Close()
 	}
-	r.clients[userID] = conn
+	r.clients[userID] = &clientInfo{conn: conn, edPub: edPub, x25519Pub: x25519Pub}
 	r.aliases[userID] = r.pickAlias()
 
 	pending := r.pending[userID]
@@ -179,15 +203,15 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		msgData := data[20:]
 
 		frame := make([]byte, 20+len(msgData))
-		copy(frame[:20], pubkeyMsg[:20])
+		copy(frame[:20], edPub[:20])
 		copy(frame[20:], msgData)
 
 		r.mu.RLock()
-		target, online := r.clients[recipID]
+		targetCI, online := r.clients[recipID]
 		r.mu.RUnlock()
 
 		if online {
-			target.WriteMessage(websocket.BinaryMessage, frame)
+			targetCI.conn.WriteMessage(websocket.BinaryMessage, frame)
 		} else {
 			r.mu.Lock()
 			if len(r.pending[recipID]) < 1000 {
@@ -199,7 +223,7 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 
 	// Unregister — alias удаляется, при следующем входе будет новая
 	r.mu.Lock()
-	if r.clients[userID] == conn {
+	if ci, ok := r.clients[userID]; ok && ci.conn == conn {
 		delete(r.clients, userID)
 		delete(r.aliases, userID)
 	}

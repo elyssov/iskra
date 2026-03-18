@@ -336,34 +336,83 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 	}
 }
 
-// HandleOnline proxies the relay /online endpoint to avoid CORS issues.
+// HandleOnline proxies the relay /online endpoint, converting hex keys to base58.
 func (a *API) HandleOnline(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	emptyResp := map[string]interface{}{"count": 0, "peers": []interface{}{}}
+
 	if a.RelayClient == nil {
-		writeJSON(w, map[string]interface{}{"count": 0, "aliases": []string{}})
+		writeJSON(w, emptyResp)
 		return
 	}
 
 	relayHTTP := a.RelayClient.HTTPBaseURL()
 	if relayHTTP == "" {
-		writeJSON(w, map[string]interface{}{"count": 0, "aliases": []string{}})
+		writeJSON(w, emptyResp)
 		return
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(relayHTTP + "/online")
 	if err != nil {
-		writeJSON(w, map[string]interface{}{"count": 0, "aliases": []string{}})
+		writeJSON(w, emptyResp)
 		return
 	}
 	defer resp.Body.Close()
 
-	w.Header().Set("Content-Type", "application/json")
-	io.Copy(w, resp.Body)
+	var relayData struct {
+		Count int `json:"count"`
+		Peers []struct {
+			Alias  string `json:"alias"`
+			EdPub  string `json:"edPub"`
+			X25519 string `json:"x25519"`
+		} `json:"peers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&relayData); err != nil {
+		writeJSON(w, emptyResp)
+		return
+	}
+
+	// Convert hex keys to base58 and compute userID, filter out self
+	myID := identity.UserID(a.Keypair.Ed25519Pub)
+	type peerOut struct {
+		Alias  string `json:"alias"`
+		UserID string `json:"userID"`
+		EdPub  string `json:"edPub"`
+		X25519 string `json:"x25519"`
+	}
+	peers := make([]peerOut, 0, len(relayData.Peers))
+	for _, p := range relayData.Peers {
+		edBytes, err := hex.DecodeString(p.EdPub)
+		if err != nil || len(edBytes) != 32 {
+			continue
+		}
+		var edPub [32]byte
+		copy(edPub[:], edBytes)
+		uid := identity.UserID(edPub)
+		if uid == myID {
+			continue // Don't show self
+		}
+		x25519B58 := ""
+		if xBytes, err := hex.DecodeString(p.X25519); err == nil && len(xBytes) == 32 {
+			x25519B58 = identity.ToBase58(xBytes)
+		}
+		peers = append(peers, peerOut{
+			Alias:  p.Alias,
+			UserID: uid,
+			EdPub:  identity.ToBase58(edBytes),
+			X25519: x25519B58,
+		})
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"count": len(peers),
+		"peers": peers,
+	})
 }
 
 // HandleRestore restores identity from mnemonic words.

@@ -19,18 +19,19 @@ const (
 
 // RelayClient connects to a relay server for cross-network message delivery.
 type RelayClient struct {
-	url       string
-	httpURL   string // HTTPS URL for wake-up pings
-	pubKey    [32]byte
-	conn      *websocket.Conn
-	onMessage func(*message.Message)
-	mu        sync.Mutex
-	stop      chan struct{}
-	connected bool
+	url        string
+	httpURL    string // HTTPS URL for wake-up pings
+	pubKey     [32]byte
+	x25519Pub  [32]byte
+	conn       *websocket.Conn
+	onMessage  func(*message.Message)
+	mu         sync.Mutex
+	stop       chan struct{}
+	connected  bool
 }
 
 // NewRelayClient creates a relay client.
-func NewRelayClient(url string, pubKey [32]byte) *RelayClient {
+func NewRelayClient(url string, pubKey [32]byte, x25519Pub [32]byte) *RelayClient {
 	// Derive HTTP URL from WebSocket URL for wake-up pings
 	// wss://host/ws → https://host/
 	httpURL := url
@@ -43,10 +44,11 @@ func NewRelayClient(url string, pubKey [32]byte) *RelayClient {
 	}
 
 	return &RelayClient{
-		url:     url,
-		httpURL: httpURL,
-		pubKey:  pubKey,
-		stop:    make(chan struct{}),
+		url:       url,
+		httpURL:   httpURL,
+		pubKey:    pubKey,
+		x25519Pub: x25519Pub,
+		stop:      make(chan struct{}),
 	}
 }
 
@@ -139,8 +141,11 @@ func (rc *RelayClient) connect() error {
 		return fmt.Errorf("relay connect failed: %w", err)
 	}
 
-	// Send pubkey as first message
-	if err := conn.WriteMessage(websocket.BinaryMessage, rc.pubKey[:]); err != nil {
+	// Send both pubkeys as first message (64 bytes: ed25519 + x25519)
+	handshake := make([]byte, 64)
+	copy(handshake[:32], rc.pubKey[:])
+	copy(handshake[32:], rc.x25519Pub[:])
+	if err := conn.WriteMessage(websocket.BinaryMessage, handshake); err != nil {
 		conn.Close()
 		return fmt.Errorf("relay handshake failed: %w", err)
 	}

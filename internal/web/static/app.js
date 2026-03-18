@@ -180,24 +180,64 @@
   }
 
   // === ONLINE ===
+  let onlinePeers = [];
+
   async function loadOnline() {
     try {
       const resp = await fetch('/api/online');
       const data = await resp.json();
       const section = document.getElementById('online-section');
       const list = document.getElementById('online-list');
+      onlinePeers = data.peers || [];
 
       if (data.count > 0) {
         section.style.display = 'block';
         document.getElementById('online-header').textContent =
           `В сети сейчас (${data.count}):`;
-        list.innerHTML = data.aliases.map(a =>
-          `<span class="online-alias">${esc(a)}</span>`
+        list.innerHTML = onlinePeers.map((p, i) =>
+          `<span class="online-alias" data-idx="${i}" title="Нажмите чтобы написать">${esc(p.alias)}</span>`
         ).join('');
+
+        // Click handler — auto-add contact and open chat
+        list.querySelectorAll('.online-alias').forEach(el => {
+          el.addEventListener('click', () => {
+            const peer = onlinePeers[parseInt(el.dataset.idx)];
+            if (peer) startChatWithPeer(peer);
+          });
+        });
       } else {
         section.style.display = 'none';
       }
     } catch(e) {}
+  }
+
+  async function startChatWithPeer(peer) {
+    // Check if already in contacts
+    let contact = contacts.find(c => c.user_id === peer.userID);
+
+    if (!contact) {
+      // Auto-add as contact with alias as name
+      try {
+        await fetch('/api/contacts', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            name: peer.alias,
+            pubkeyBase58: peer.edPub,
+            x25519Base58: peer.x25519
+          })
+        });
+        await loadContacts();
+        contact = contacts.find(c => c.user_id === peer.userID);
+      } catch(e) {
+        console.error('Failed to add contact:', e);
+        return;
+      }
+    }
+
+    if (contact) {
+      openChat(contact);
+    }
   }
 
   // === CHAT ===
