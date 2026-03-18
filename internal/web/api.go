@@ -232,7 +232,7 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		Peers:    a.Peers.Count(),
 		Relay:    relayConnected,
 		HoldSize: a.Hold.Count(),
-		Version:  "0.1.0-alpha",
+		Version:  "0.1.9-alpha",
 		Build:    BuildNumber,
 	}
 	writeJSON(w, resp)
