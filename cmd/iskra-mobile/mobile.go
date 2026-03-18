@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"sync"
 
+	// gomobile bind requires x/mobile/bind in go.mod
+	_ "golang.org/x/mobile/bind"
+
 	"github.com/iskra-messenger/iskra/internal/identity"
 	"github.com/iskra-messenger/iskra/internal/mesh"
 	"github.com/iskra-messenger/iskra/internal/message"
