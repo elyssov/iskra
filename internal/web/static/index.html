@@ -2,76 +2,188 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Искра</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="app">
-  <!-- Sidebar: contacts -->
+
+<!-- Экран первого запуска -->
+<div id="onboarding" style="display:none">
+  <div class="onboarding-container">
+    <div class="onboarding-flame">🔥</div>
+    <h1>Искра</h1>
+    <p class="onboarding-subtitle">Свободный мессенджер без серверов</p>
+    <div class="onboarding-card">
+      <p>Ваш ключ создан. Это ваш адрес в сети Искра — как номер телефона, только его невозможно заблокировать.</p>
+      <div class="onboarding-id" id="onboarding-id"></div>
+      <button class="btn-copy" id="btn-copy-link">Скопировать визитку для друзей</button>
+    </div>
+    <div class="onboarding-card warning">
+      <h3>Запишите эти 24 слова</h3>
+      <p>Это единственный способ восстановить доступ. Без них ваши сообщения потеряны навсегда. Запишите на бумагу. Не фотографируйте.</p>
+      <div class="mnemonic-grid" id="onboarding-mnemonic"></div>
+    </div>
+    <button class="btn-primary btn-large" id="btn-start">Я записал(а) слова. Начать.</button>
+  </div>
+</div>
+
+<!-- Основной интерфейс -->
+<div id="app" style="display:none">
+  <!-- Боковая панель -->
   <div id="sidebar">
     <div id="header">
-      <div id="app-title">🔥 Искра</div>
-      <div id="my-id" title="Мой ID"></div>
+      <div id="header-top">
+        <div id="app-title">🔥 Искра</div>
+        <button id="btn-help" class="header-btn" title="Помощь">?</button>
+      </div>
+      <div id="my-id" title="Нажмите чтобы скопировать визитку"></div>
       <div id="status-bar"></div>
     </div>
     <div id="contacts-list"></div>
     <div id="sidebar-footer">
-      <button id="btn-add-contact" title="Добавить контакт">+ Контакт</button>
-      <button id="btn-show-id" title="Мой ID и мнемоника">🔑</button>
-      <button id="btn-import" title="Импорт контактов">📥</button>
+      <button id="btn-add-contact" title="Добавить контакт">
+        <span class="btn-icon">+</span> Добавить
+      </button>
+      <button id="btn-show-id" title="Моя визитка и ключи">
+        <span class="btn-icon">🔑</span> Мой ключ
+      </button>
     </div>
   </div>
 
-  <!-- Chat area -->
+  <!-- Область чата -->
   <div id="chat-area">
     <div id="chat-header">
       <button id="btn-back" class="mobile-only">←</button>
       <span id="chat-contact-name">Выберите контакт</span>
       <span id="chat-contact-status"></span>
     </div>
-    <div id="messages"></div>
+    <div id="messages">
+      <div id="welcome-screen">
+        <div class="welcome-flame">🔥</div>
+        <h2>Добро пожаловать в Искру</h2>
+        <p>Выберите контакт слева или добавьте нового, чтобы начать общение.</p>
+        <p class="welcome-hint">Каждое сообщение шифруется на вашем устройстве. Никто, кроме вас и собеседника, не может его прочитать.</p>
+      </div>
+    </div>
     <div id="input-area" style="display:none">
-      <textarea id="msg-input" placeholder="Сообщение..." rows="1"></textarea>
-      <button id="btn-send">→</button>
+      <textarea id="msg-input" placeholder="Написать сообщение..." rows="1"></textarea>
+      <button id="btn-send" title="Отправить (Enter)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+      </button>
     </div>
   </div>
 </div>
 
-<!-- Modal: Identity -->
+<!-- Модальное: Помощь -->
+<div id="modal-help" class="modal" style="display:none">
+  <div class="modal-content modal-large">
+    <div class="modal-header">
+      <h3>🔥 Как работает Искра</h3>
+      <button class="modal-close" onclick="closeModal('modal-help')">&times;</button>
+    </div>
+    <div class="help-section">
+      <h4>Что такое Искра?</h4>
+      <p>Мессенджер, который <strong>невозможно заблокировать</strong>. У него нет сервера — значит, нечего отключить. Каждый телефон с Искрой — это одновременно и мессенджер, и почтальон для всей сети.</p>
+    </div>
+    <div class="help-section">
+      <h4>Как передаются сообщения?</h4>
+      <p>Как почтовые корабли в XVIII веке. Ваше сообщение запечатано (зашифровано) и передаётся от телефона к телефону через Wi-Fi. Каждый телефон, встретив другой, обменивается "почтой". Рано или поздно сообщение доходит до адресата.</p>
+    </div>
+    <div class="help-section">
+      <h4>Это безопасно?</h4>
+      <p><strong>Да.</strong> Сообщения шифруются прямо на вашем телефоне. Промежуточные телефоны переносят зашифрованный пакет — они не могут его прочитать. Даже мы, разработчики, не можем прочитать ваши сообщения.</p>
+      <p>Используется та же криптография, которой доверяют спецслужбы всего мира: <em>XSalsa20-Poly1305 + Ed25519</em>. Открытый код, открытая математика.</p>
+    </div>
+    <div class="help-section">
+      <h4>Как добавить контакт?</h4>
+      <p>Нажмите <strong>"+ Добавить"</strong>. Вставьте визитку друга — он может отправить её вам через Telegram, SMS, email, или просто продиктовать. Визитка выглядит так: <code>iskra://...</code></p>
+      <p>Свою визитку вы найдёте в разделе <strong>"Мой ключ"</strong>.</p>
+    </div>
+    <div class="help-section">
+      <h4>Что такое 24 слова?</h4>
+      <p>Это ваш "пароль" для восстановления. Если вы потеряете телефон — установите Искру заново и введите эти 24 слова. Все ваши контакты и ключи восстановятся. <strong>Без этих слов восстановление невозможно.</strong></p>
+    </div>
+    <div class="help-section">
+      <h4>Что означают галочки?</h4>
+      <p>✓ — сообщение отправлено в сеть<br>✓✓ — собеседник получил и прочитал</p>
+    </div>
+    <div class="help-section">
+      <h4>Что такое "трюм"?</h4>
+      <p>Каждый телефон с Искрой носит в "трюме" чужие зашифрованные сообщения и передаёт их дальше при встрече с другими телефонами. Вы не можете их прочитать — они зашифрованы для других людей. Но вы помогаете им дойти.</p>
+    </div>
+    <div class="help-section help-motto">
+      <p><em>«Из искры возгорится пламя»</em></p>
+      <p class="help-small">Версия 0.1.0-alpha</p>
+    </div>
+  </div>
+</div>
+
+<!-- Модальное: Мой ключ -->
 <div id="modal-id" class="modal" style="display:none">
   <div class="modal-content">
-    <h3>Ваша Искра</h3>
-    <p><strong>ID:</strong> <span id="modal-user-id"></span></p>
-    <p><strong>Публичный ключ (Ed25519):</strong></p>
-    <code id="modal-pubkey"></code>
-    <p><strong>Ключ шифрования (X25519):</strong></p>
-    <code id="modal-x25519"></code>
-    <p><strong>Мнемоника (запишите!):</strong></p>
-    <div id="modal-mnemonic"></div>
-    <button onclick="closeModal('modal-id')">Закрыть</button>
+    <div class="modal-header">
+      <h3>🔑 Ваша визитка</h3>
+      <button class="modal-close" onclick="closeModal('modal-id')">&times;</button>
+    </div>
+    <p class="help-text">Отправьте визитку друзьям любым способом — через Telegram, SMS, email, продиктуйте вслух. По ней они добавят вас в свою Искру.</p>
+    <div class="invite-link" id="modal-invite-link"></div>
+    <button class="btn-primary btn-block" id="btn-copy-invite">Скопировать визитку</button>
+
+    <div class="divider"></div>
+
+    <details class="tech-details">
+      <summary>Технические данные (для продвинутых)</summary>
+      <p><strong>ID:</strong> <span id="modal-user-id"></span></p>
+      <p><strong>Ed25519:</strong></p>
+      <code id="modal-pubkey"></code>
+      <p><strong>X25519:</strong></p>
+      <code id="modal-x25519"></code>
+    </details>
+
+    <div class="divider"></div>
+
+    <details class="tech-details">
+      <summary>24 слова для восстановления</summary>
+      <div class="mnemonic-grid" id="modal-mnemonic"></div>
+      <p class="warning-text">Никому не показывайте эти слова. Тот, кто их знает — может читать все ваши сообщения.</p>
+    </details>
   </div>
 </div>
 
-<!-- Modal: Add Contact -->
+<!-- Модальное: Добавить контакт -->
 <div id="modal-add" class="modal" style="display:none">
   <div class="modal-content">
-    <h3>Добавить контакт</h3>
-    <input id="add-name" placeholder="Имя" />
-    <input id="add-pubkey" placeholder="Публичный ключ (base58)" />
-    <input id="add-x25519" placeholder="Ключ шифрования X25519 (base58)" />
-    <button id="btn-add-save">Добавить</button>
-    <button onclick="closeModal('modal-add')">Отмена</button>
+    <div class="modal-header">
+      <h3>Добавить контакт</h3>
+      <button class="modal-close" onclick="closeModal('modal-add')">&times;</button>
+    </div>
+    <p class="help-text">Вставьте визитку друга (начинается с <code>iskra://</code>) или введите данные вручную.</p>
+    <input id="add-invite" placeholder="Вставьте визитку iskra://..." class="input-large" />
+    <div class="divider-text">или вручную</div>
+    <input id="add-name" placeholder="Имя друга" />
+    <input id="add-pubkey" placeholder="Публичный ключ" />
+    <input id="add-x25519" placeholder="Ключ шифрования" />
+    <div class="modal-buttons">
+      <button class="btn-primary" id="btn-add-save">Добавить</button>
+      <button class="btn-secondary" onclick="closeModal('modal-add')">Отмена</button>
+    </div>
   </div>
 </div>
 
-<!-- Modal: Import -->
+<!-- Модальное: Импорт -->
 <div id="modal-import" class="modal" style="display:none">
   <div class="modal-content">
-    <h3>Импорт контактов</h3>
-    <textarea id="import-json" placeholder='[{"name":"Алиса","publicKey":"...","x25519Key":"..."}]' rows="5"></textarea>
-    <button id="btn-import-save">Импортировать</button>
-    <button onclick="closeModal('modal-import')">Отмена</button>
+    <div class="modal-header">
+      <h3>Импорт контактов</h3>
+      <button class="modal-close" onclick="closeModal('modal-import')">&times;</button>
+    </div>
+    <p class="help-text">Вставьте данные контактов в формате JSON.</p>
+    <textarea id="import-json" placeholder='[{"name":"Имя","publicKey":"...","x25519Key":"..."}]' rows="5"></textarea>
+    <div class="modal-buttons">
+      <button class="btn-primary" id="btn-import-save">Импортировать</button>
+      <button class="btn-secondary" onclick="closeModal('modal-import')">Отмена</button>
+    </div>
   </div>
 </div>
 
