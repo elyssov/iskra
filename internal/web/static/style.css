@@ -284,35 +284,66 @@ body {
 /* Contacts */
 #online-section {
   border-bottom: 1px solid var(--border);
-  padding: 8px 16px;
+  padding: 8px 0;
   background: #f8f9fa;
+  max-height: 200px;
+  overflow-y: auto;
 }
 #online-header {
   font-size: 11px;
   text-transform: uppercase;
   color: var(--text-light);
   letter-spacing: 0.5px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   font-weight: 600;
+  padding: 0 16px;
 }
 #online-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  flex-direction: column;
 }
-.online-alias {
-  display: inline-block;
-  background: var(--green);
-  color: white;
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-weight: 500;
+.online-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.15s;
 }
-.online-alias:hover {
+.online-item:hover { background: #eef1f4; }
+.online-item.online-known { background: rgba(61,143,214,0.06); }
+.online-item.online-known:hover { background: rgba(61,143,214,0.12); }
+.online-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+.online-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.online-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.online-contact-badge {
+  display: inline-block;
+  font-size: 10px;
   background: var(--blue);
+  color: white;
+  padding: 0 5px;
+  border-radius: 6px;
+  margin-left: 6px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+.online-subtitle {
+  font-size: 11px;
+  color: var(--text-light);
 }
 
 #contacts-list { flex: 1; overflow-y: auto; }
@@ -344,8 +375,23 @@ body {
 }
 
 .contact-info { flex: 1; min-width: 0; }
-.contact-name { font-weight: 600; font-size: 15px; color: var(--text); }
+.contact-name { font-weight: 600; font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 6px; }
 .contact-last { font-size: 13px; color: var(--text-light); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.unread-badge {
+  background: var(--green);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  margin-left: auto;
+}
 
 .contacts-empty {
   padding: 40px 20px;
@@ -397,8 +443,26 @@ body {
   gap: 10px;
 }
 
-#chat-contact-name { font-weight: 600; font-size: 17px; }
+#chat-contact-name { font-weight: 600; font-size: 17px; flex: 1; }
 #chat-contact-status { font-size: 12px; opacity: 0.8; }
+
+#chat-actions { display: flex; gap: 4px; margin-left: auto; }
+
+.chat-action-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+.chat-action-btn:hover { background: rgba(255,255,255,0.35); }
 
 /* Welcome */
 #welcome-screen {

@@ -85,6 +85,7 @@ func Start(dataDir string, port int) int {
 		Transport:   transport,
 		RelayClient: relayClient,
 		Mode:        mode,
+		DataDir:     dataDir,
 	}
 
 	// Message handler

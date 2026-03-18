@@ -18,9 +18,8 @@ jobs:
 
       - name: Install gomobile
         run: |
-          GOTOOLCHAIN=auto go install golang.org/x/mobile/cmd/gomobile@latest
-          GOTOOLCHAIN=auto go install golang.org/x/mobile/cmd/gobind@latest
-          gomobile init
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
 
       - uses: android-actions/setup-android@v3
 
@@ -28,9 +27,10 @@ jobs:
         run: sdkmanager "ndk;26.1.10909125"
 
       - name: Build .aar
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
         run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
+          gomobile init
+          mkdir -p android/app/libs
           gomobile bind -target=android/arm64,android/arm -androidapi 24 \
             -o android/app/libs/iskra.aar \
             ./cmd/iskra-mobile/
@@ -61,7 +61,6 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew 2>/dev/null || true
-          # Use gradle wrapper or install
           if [ ! -f gradlew ]; then
             gradle wrapper --gradle-version 8.4
           fi

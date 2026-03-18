@@ -3,6 +3,7 @@
   let currentContact = null;
   let contacts = [];
   let pollTimer = null;
+  let unreadCounts = {}; // userID -> count
 
   // Цвета аватаров — теплые, различимые
   const avatarColors = [
@@ -35,6 +36,7 @@
     await loadContacts();
     await loadStatus();
     loadOnline();
+    updateUnreadCounts();
     startPolling();
     setupEvents();
   }
@@ -132,10 +134,12 @@
       const initial = (c.name || '?')[0].toUpperCase();
       const color = getAvatarColor(c.name);
       const active = currentContact && currentContact.user_id === c.user_id ? ' active' : '';
+      const unread = unreadCounts[c.user_id] || 0;
+      const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
       return `<div class="contact-item${active}" data-uid="${c.user_id}">
         <div class="contact-avatar" style="background:${color}">${initial}</div>
         <div class="contact-info">
-          <div class="contact-name">${esc(c.name)}</div>
+          <div class="contact-name">${esc(c.name)}${badge}</div>
           <div class="contact-last">${c.user_id}</div>
         </div>
       </div>`;
@@ -176,6 +180,11 @@
       }
 
       bar.innerHTML = parts.join(' · ');
+
+      // Show build number in header
+      if (data.build) {
+        document.getElementById('build-num').textContent = '#' + data.build;
+      }
     } catch(e) {}
   }
 
@@ -194,12 +203,27 @@
         section.style.display = 'block';
         document.getElementById('online-header').textContent =
           `В сети сейчас (${data.count}):`;
-        list.innerHTML = onlinePeers.map((p, i) =>
-          `<span class="online-alias" data-idx="${i}" title="Нажмите чтобы написать">${esc(p.alias)}</span>`
-        ).join('');
 
-        // Click handler — auto-add contact and open chat
-        list.querySelectorAll('.online-alias').forEach(el => {
+        list.innerHTML = onlinePeers.map((p, i) => {
+          // Check if this peer is a known contact
+          const known = contacts.find(c => c.user_id === p.userID);
+          const displayName = known ? known.name : p.alias;
+          const knownClass = known ? ' online-known' : '';
+          const knownBadge = known ? '<span class="online-contact-badge">контакт</span>' : '';
+          const subtitle = known
+            ? `<span class="online-subtitle">${esc(p.alias)}</span>`
+            : '<span class="online-subtitle">Нажмите чтобы написать</span>';
+
+          return `<div class="online-item${knownClass}" data-idx="${i}">
+            <span class="online-dot"></span>
+            <div class="online-info">
+              <span class="online-name">${esc(displayName)}</span>${knownBadge}
+              ${subtitle}
+            </div>
+          </div>`;
+        }).join('');
+
+        list.querySelectorAll('.online-item').forEach(el => {
           el.addEventListener('click', () => {
             const peer = onlinePeers[parseInt(el.dataset.idx)];
             if (peer) startChatWithPeer(peer);
@@ -212,11 +236,9 @@
   }
 
   async function startChatWithPeer(peer) {
-    // Check if already in contacts
     let contact = contacts.find(c => c.user_id === peer.userID);
 
     if (!contact) {
-      // Auto-add as contact with alias as name
       try {
         await fetch('/api/contacts', {
           method: 'POST',
@@ -247,9 +269,16 @@
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
     document.getElementById('app').classList.add('chat-open');
+
+    // Show chat action buttons
+    document.getElementById('btn-delete-chat').style.display = 'inline-flex';
+    document.getElementById('btn-rename-contact').style.display = 'inline-flex';
+
+    // Mark as read
+    markAsRead(contact.user_id);
+
     renderContacts();
     loadMessages();
-    // Focus input
     setTimeout(() => document.getElementById('msg-input').focus(), 100);
   }
 
@@ -259,6 +288,10 @@
       const resp = await fetch(`/api/messages/${currentContact.user_id}`);
       const msgs = await resp.json();
       renderMessages(msgs);
+      // Keep marking as read while chat is open
+      if (msgs && msgs.length > 0) {
+        markAsRead(currentContact.user_id);
+      }
     } catch(e) {}
   }
 
@@ -344,7 +377,35 @@
     document.getElementById('btn-back').addEventListener('click', () => {
       document.getElementById('app').classList.remove('chat-open');
       document.getElementById('welcome-screen').style.display = 'flex';
+      document.getElementById('btn-delete-chat').style.display = 'none';
+      document.getElementById('btn-rename-contact').style.display = 'none';
       currentContact = null;
+    });
+
+    // Delete chat
+    document.getElementById('btn-delete-chat').addEventListener('click', async () => {
+      if (!currentContact) return;
+      if (!confirm(`Удалить переписку с ${currentContact.name}?`)) return;
+      try {
+        await fetch(`/api/chat/delete/${currentContact.user_id}`, {method: 'POST'});
+        loadMessages();
+      } catch(e) { console.error('Delete chat failed:', e); }
+    });
+
+    // Rename contact
+    document.getElementById('btn-rename-contact').addEventListener('click', () => {
+      if (!currentContact) return;
+      const newName = prompt('Новое имя:', currentContact.name);
+      if (!newName || newName === currentContact.name) return;
+      fetch(`/api/contacts/rename/${currentContact.user_id}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: newName})
+      }).then(() => {
+        currentContact.name = newName;
+        document.getElementById('chat-contact-name').textContent = newName;
+        loadContacts();
+      }).catch(e => console.error('Rename failed:', e));
     });
 
     // Help
@@ -515,13 +576,41 @@
     document.getElementById('add-x25519').value = '';
   }
 
+  // === UNREAD TRACKING ===
+  function getLastRead(userID) {
+    return parseInt(localStorage.getItem('iskra-lastread-' + userID) || '0', 10);
+  }
+
+  function markAsRead(userID) {
+    localStorage.setItem('iskra-lastread-' + userID, Math.floor(Date.now() / 1000).toString());
+    unreadCounts[userID] = 0;
+    renderContacts();
+  }
+
+  async function updateUnreadCounts() {
+    for (const c of contacts) {
+      try {
+        const resp = await fetch(`/api/messages/${c.user_id}`);
+        const msgs = await resp.json();
+        if (!msgs || msgs.length === 0) { unreadCounts[c.user_id] = 0; continue; }
+        const lastRead = getLastRead(c.user_id);
+        const unread = msgs.filter(m => !m.outgoing && m.timestamp > lastRead).length;
+        unreadCounts[c.user_id] = unread;
+      } catch(e) { /* ignore */ }
+    }
+    renderContacts();
+  }
+
   function startPolling() {
-    pollTimer = setInterval(() => {
+    // Fast poll for messages (2s), slower for status/online/unread (5s)
+    setInterval(() => {
       if (currentContact) loadMessages();
-      loadContacts();
+    }, 2000);
+    setInterval(() => {
+      loadContacts().then(() => updateUnreadCounts());
       loadStatus();
       loadOnline();
-    }, 3000);
+    }, 5000);
   }
 
   function esc(s) {

@@ -17,6 +17,9 @@ import (
 	"github.com/iskra-messenger/iskra/internal/store"
 )
 
+// Build number — increment on each iteration
+const BuildNumber = 3
+
 // API handles REST API requests.
 type API struct {
 	Keypair     *identity.Keypair
@@ -55,6 +58,7 @@ type statusResponse struct {
 	Relay    bool   `json:"relay"`
 	HoldSize int    `json:"holdSize"`
 	Version  string `json:"version"`
+	Build    int    `json:"build"`
 }
 
 // HandleIdentity returns the user's identity info.
@@ -228,6 +232,7 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		Relay:    relayConnected,
 		HoldSize: a.Hold.Count(),
 		Version:  "0.1.0-alpha",
+		Build:    BuildNumber,
 	}
 	writeJSON(w, resp)
 }
@@ -304,6 +309,7 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 		switch msg.ContentType {
 		case message.ContentText:
 			senderID := identity.UserID(msg.AuthorPub)
+			log.Printf("[Recv] Text from %s: %q", senderID[:8], string(plaintext))
 			a.Inbox.AddMessage(senderID, store.InboxMessage{
 				ID:        hex.EncodeToString(msg.ID[:]),
 				From:      senderID,
@@ -316,6 +322,14 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 
 			// Update contact last seen
 			a.Contacts.UpdateLastSeen(senderID, time.Now().Unix())
+
+			// Auto-save inbox on receive
+			if a.DataDir != "" {
+				a.Inbox.Save(a.DataDir + "/inbox.json")
+			}
+
+			// Send delivery confirmation back to sender
+			go a.sendDeliveryConfirm(msg)
 
 		case message.ContentDeliveryConfirm:
 			if len(plaintext) == 32 {
@@ -415,6 +429,48 @@ func (a *API) HandleOnline(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleDeleteChat deletes all messages in a chat.
+func (a *API) HandleDeleteChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := strings.TrimPrefix(r.URL.Path, "/api/chat/delete/")
+	userID = strings.TrimRight(userID, "/")
+	if userID == "" {
+		http.Error(w, "userID required", http.StatusBadRequest)
+		return
+	}
+	a.Inbox.DeleteChat(userID)
+	writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// HandleRenameContact renames a contact locally.
+func (a *API) HandleRenameContact(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := strings.TrimPrefix(r.URL.Path, "/api/contacts/rename/")
+	userID = strings.TrimRight(userID, "/")
+	if userID == "" {
+		http.Error(w, "userID required", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := readJSON(r, &req); err != nil || req.Name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	if a.Contacts.Rename(userID, req.Name) {
+		writeJSON(w, map[string]string{"status": "ok"})
+	} else {
+		http.Error(w, "contact not found", http.StatusNotFound)
+	}
+}
+
 // HandleRestore restores identity from mnemonic words.
 func (a *API) HandleRestore(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -460,6 +516,42 @@ func (a *API) HandleRestore(w http.ResponseWriter, r *http.Request) {
 		"userID": identity.UserID(kp.Ed25519Pub),
 		"message": "Ключ восстановлен. Перезапустите приложение.",
 	})
+}
+
+// sendDeliveryConfirm sends a delivery receipt back to the message sender.
+func (a *API) sendDeliveryConfirm(origMsg *message.Message) {
+	// Build recipient keys from sender's AuthorPub
+	var recipientKeys message.RecipientKeys
+	recipientKeys.Ed25519Pub = origMsg.AuthorPub
+
+	// Try to find sender's X25519 key from contacts
+	senderID := identity.UserID(origMsg.AuthorPub)
+	if contact := a.Contacts.GetByUserID(senderID); contact != nil && contact.X25519Pub != "" {
+		if xBytes, err := identity.FromBase58(contact.X25519Pub); err == nil && len(xBytes) == 32 {
+			copy(recipientKeys.X25519Pub[:], xBytes)
+		}
+	}
+
+	// Payload = original message ID (32 bytes)
+	confirmMsg, err := message.NewWithType(a.Keypair, recipientKeys, message.ContentDeliveryConfirm, origMsg.ID[:])
+	if err != nil {
+		log.Printf("[Confirm] Failed to create: %v", err)
+		return
+	}
+
+	// Send via relay
+	if a.RelayClient != nil && a.RelayClient.IsConnected() {
+		if err := a.RelayClient.SendMessage(confirmMsg); err != nil {
+			log.Printf("[Confirm] Relay send failed: %v", err)
+		} else {
+			log.Printf("[Confirm] Sent delivery confirm for %x", origMsg.ID[:4])
+		}
+	}
+
+	// Broadcast to LAN peers
+	if a.Transport != nil {
+		a.Transport.BroadcastMessage(confirmMsg)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

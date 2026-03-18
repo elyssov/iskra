@@ -84,6 +84,36 @@ func (c *Contacts) GetByUserID(userID string) *Contact {
 	return nil
 }
 
+// Rename changes a contact's display name.
+func (c *Contacts) Rename(userID string, newName string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.contacts {
+		if c.contacts[i].UserID == userID {
+			c.contacts[i].Name = newName
+			c.save()
+			return true
+		}
+	}
+	return false
+}
+
+// Delete removes a contact.
+func (c *Contacts) Delete(userID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.contacts {
+		if c.contacts[i].UserID == userID {
+			c.contacts = append(c.contacts[:i], c.contacts[i+1:]...)
+			c.save()
+			return true
+		}
+	}
+	return false
+}
+
 // UpdateLastSeen updates the last seen timestamp for a contact.
 func (c *Contacts) UpdateLastSeen(userID string, timestamp int64) {
 	c.mu.Lock()

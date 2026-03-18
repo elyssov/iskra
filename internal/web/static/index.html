@@ -35,7 +35,7 @@
   <div id="sidebar">
     <div id="header">
       <div id="header-top">
-        <div id="app-title">🔥 Искра</div>
+        <div id="app-title">🔥 Искра <span id="build-num" style="font-size:11px;opacity:0.7;font-weight:400"></span></div>
         <button id="btn-help" class="header-btn" title="Помощь">?</button>
       </div>
       <div id="my-id" title="Нажмите чтобы скопировать визитку"></div>
@@ -62,6 +62,10 @@
       <button id="btn-back" class="mobile-only">←</button>
       <span id="chat-contact-name">Выберите контакт</span>
       <span id="chat-contact-status"></span>
+      <div id="chat-actions">
+        <button id="btn-rename-contact" class="chat-action-btn" title="Переименовать" style="display:none">&#9998;</button>
+        <button id="btn-delete-chat" class="chat-action-btn" title="Удалить переписку" style="display:none">&#128465;</button>
+      </div>
     </div>
     <div id="messages">
       <div id="welcome-screen">

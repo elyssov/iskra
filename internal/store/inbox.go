@@ -72,6 +72,13 @@ func (in *Inbox) GetMessages(contactID string) []InboxMessage {
 	return result
 }
 
+// DeleteChat removes all messages for a contact.
+func (in *Inbox) DeleteChat(contactID string) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	delete(in.messages, contactID)
+}
+
 // MarkDelivered marks a message as delivered.
 func (in *Inbox) MarkDelivered(msgID string) {
 	in.mu.Lock()
