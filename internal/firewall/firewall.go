@@ -9,14 +9,14 @@ import (
 )
 
 // EnsureFirewallRule checks if Windows Firewall has an exception for the app
-// and adds inbound+outbound rules if missing. No-op on non-Windows.
-// Failures are logged but never fatal — user may not have admin privileges.
+// and adds inbound+outbound rules if missing via UAC elevation.
+// No-op on non-Windows. Failures are logged but never fatal.
 func EnsureFirewallRule(appName string) {
 	if runtime.GOOS != "windows" {
 		return
 	}
 
-	// Check if rule already exists
+	// Check if rule already exists (doesn't need admin)
 	check := exec.Command("netsh", "advfirewall", "firewall", "show", "rule", "name="+appName)
 	out, err := check.CombinedOutput()
 	if err == nil && !strings.Contains(string(out), "No rules match") {
@@ -30,35 +30,24 @@ func EnsureFirewallRule(appName string) {
 		return
 	}
 
-	log.Printf("[FW] Adding firewall rules for '%s' (%s)", appName, exePath)
+	log.Printf("[FW] Adding firewall rules for '%s' via UAC...", appName)
 
-	// Add inbound rule
-	inCmd := exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
-		"name="+appName,
-		"dir=in",
-		"action=allow",
-		"program="+exePath,
-		"enable=yes",
-		"profile=private",
-	)
-	if out, err := inCmd.CombinedOutput(); err != nil {
-		log.Printf("[FW] Failed to add inbound rule (need admin?): %v — %s", err, strings.TrimSpace(string(out)))
-	} else {
-		log.Printf("[FW] Inbound rule added successfully")
-	}
+	// Build netsh commands as a single script for UAC elevation
+	script := strings.Join([]string{
+		"netsh advfirewall firewall add rule name='" + appName + "' dir=in action=allow program='" + exePath + "' enable=yes profile=private",
+		"netsh advfirewall firewall add rule name='" + appName + "' dir=out action=allow program='" + exePath + "' enable=yes profile=private",
+	}, "; ")
 
-	// Add outbound rule
-	outCmd := exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
-		"name="+appName,
-		"dir=out",
-		"action=allow",
-		"program="+exePath,
-		"enable=yes",
-		"profile=private",
+	// Use PowerShell Start-Process with -Verb RunAs to trigger UAC dialog
+	cmd := exec.Command("powershell", "-Command",
+		"Start-Process", "powershell",
+		"-ArgumentList", "'-Command', '"+script+"'",
+		"-Verb", "RunAs",
+		"-Wait",
 	)
-	if out, err := outCmd.CombinedOutput(); err != nil {
-		log.Printf("[FW] Failed to add outbound rule (need admin?): %v — %s", err, strings.TrimSpace(string(out)))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("[FW] UAC elevation failed or was declined: %v — %s", err, strings.TrimSpace(string(out)))
 	} else {
-		log.Printf("[FW] Outbound rule added successfully")
+		log.Printf("[FW] Firewall rules added successfully via UAC")
 	}
 }
