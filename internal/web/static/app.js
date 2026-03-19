@@ -43,6 +43,7 @@
     await loadContacts();
     await loadGroups();
     await loadStatus();
+    checkForUpdate();
     loadOnline();
     updateUnreadCounts();
     startPolling();
@@ -237,6 +238,90 @@
         document.getElementById('build-num').textContent = '#' + data.build;
       }
     } catch(e) {}
+  }
+
+  // === UPDATE CHECK ===
+  async function checkForUpdate() {
+    try {
+      const resp = await fetch('/api/update/check');
+      const data = await resp.json();
+      const banner = document.getElementById('update-banner');
+      if (!banner) return;
+      if (!data.available) {
+        banner.style.display = 'none';
+        return;
+      }
+      banner.style.display = 'block';
+      banner.innerHTML = `
+        <div class="update-banner-content">
+          <div class="update-banner-text">
+            <strong>Доступна версия ${esc(data.version)}</strong>
+          </div>
+          <button class="update-banner-btn" id="btn-update-show">Обновить</button>
+        </div>`;
+      banner.querySelector('#btn-update-show').addEventListener('click', () => {
+        showUpdateModal(data);
+      });
+    } catch(e) {
+      console.error('Update check failed:', e);
+    }
+  }
+
+  function showUpdateModal(data) {
+    // Remove existing modal if any
+    let modal = document.getElementById('modal-update');
+    if (modal) modal.remove();
+
+    // Detect platform
+    const ua = navigator.userAgent.toLowerCase();
+    const isAndroid = ua.indexOf('android') !== -1;
+    const isWindows = ua.indexOf('win') !== -1;
+
+    // Build asset links
+    let assetsHTML = '';
+    if (data.assets && data.assets.length > 0) {
+      const relevant = data.assets.filter(a => {
+        const name = a.name.toLowerCase();
+        if (isAndroid) return name.endsWith('.apk');
+        if (isWindows) return name.endsWith('.exe');
+        return true;
+      });
+      const showAll = relevant.length === 0 ? data.assets : relevant;
+      assetsHTML = showAll.map(a => {
+        const sizeMB = (a.size / 1048576).toFixed(1);
+        return `<a href="${esc(a.url)}" class="update-asset-link" target="_blank" rel="noopener">
+          ${esc(a.name)} <span class="update-asset-size">(${sizeMB} МБ)</span>
+        </a>`;
+      }).join('');
+    }
+
+    // Format changelog (simple markdown-like)
+    const changelog = (data.changelog || 'Нет описания').replace(/\n/g, '<br>');
+
+    const platformHint = isAndroid
+      ? '<p class="update-hint">Скачайте APK и откройте его для установки.</p>'
+      : isWindows
+        ? '<p class="update-hint">Скачайте EXE, закройте Искру и замените старый файл новым.</p>'
+        : '<p class="update-hint">Скачайте файл для вашей платформы.</p>';
+
+    modal = document.createElement('div');
+    modal.id = 'modal-update';
+    modal.className = 'modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Обновление до ${esc(data.version)}</h3>
+          <button class="modal-close" onclick="closeModal('modal-update')">&times;</button>
+        </div>
+        <div class="update-changelog">${changelog}</div>
+        ${platformHint}
+        <div class="update-assets">${assetsHTML}</div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => {
+      if (e.target === modal) modal.style.display = 'none';
+    });
   }
 
   // === ONLINE ===

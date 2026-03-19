@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Iskra" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="android:windowBackground">#1a1a2e</item>
-        <item name="android:statusBarColor">#1a1a2e</item>
-        <item name="android:navigationBarColor">#1a1a2e</item>
+    <style name="Theme.Iskra" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@color/splash_bg</item>
+        <item name="android:statusBarColor">@color/blue_primary</item>
+        <item name="android:navigationBarColor">@color/splash_bg</item>
     </style>
 </resources>

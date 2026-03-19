@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	iskraCrypto "github.com/iskra-messenger/iskra/internal/crypto"
@@ -18,7 +19,7 @@ import (
 )
 
 // Build number — increment on each iteration
-const BuildNumber = 8
+const BuildNumber = 9
 
 // API handles REST API requests.
 type API struct {
@@ -927,6 +928,104 @@ func (a *API) HandleUnread(w http.ResponseWriter, r *http.Request) {
 		"lastMsg": lastMsg,
 		"lastTs":  lastTs,
 	})
+}
+
+// --- FOTA (update check) ---
+
+var (
+	updateCacheMu     sync.Mutex
+	updateCacheResult *updateCheckResponse
+	updateCacheTime   time.Time
+)
+
+type updateAsset struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+	Size int64  `json:"size"`
+}
+
+type updateCheckResponse struct {
+	Available bool          `json:"available"`
+	Version   string        `json:"version"`
+	Changelog string        `json:"changelog"`
+	Assets    []updateAsset `json:"assets"`
+}
+
+// HandleCheckUpdate checks GitHub Releases for a newer version.
+func (a *API) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	updateCacheMu.Lock()
+	if updateCacheResult != nil && time.Since(updateCacheTime) < 1*time.Hour {
+		cached := *updateCacheResult
+		updateCacheMu.Unlock()
+		writeJSON(w, cached)
+		return
+	}
+	updateCacheMu.Unlock()
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://api.github.com/repos/elyssov/iskra/releases/latest")
+	if err != nil {
+		log.Printf("[Update] GitHub API error: %v", err)
+		writeJSON(w, updateCheckResponse{Available: false})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[Update] GitHub API status: %d", resp.StatusCode)
+		writeJSON(w, updateCheckResponse{Available: false})
+		return
+	}
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Body    string `json:"body"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+			Size               int64  `json:"size"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		log.Printf("[Update] JSON parse error: %v", err)
+		writeJSON(w, updateCheckResponse{Available: false})
+		return
+	}
+
+	// Compare versions: strip leading 'v' and compare as strings
+	remoteVer := strings.TrimPrefix(release.TagName, "v")
+	localVer := "0.1.9-alpha"
+
+	available := remoteVer != localVer && remoteVer > localVer
+	log.Printf("[Update] Local=%s Remote=%s Available=%v", localVer, remoteVer, available)
+
+	assets := make([]updateAsset, 0, len(release.Assets))
+	for _, a := range release.Assets {
+		assets = append(assets, updateAsset{
+			Name: a.Name,
+			URL:  a.BrowserDownloadURL,
+			Size: a.Size,
+		})
+	}
+
+	result := &updateCheckResponse{
+		Available: available,
+		Version:   remoteVer,
+		Changelog: release.Body,
+		Assets:    assets,
+	}
+
+	updateCacheMu.Lock()
+	updateCacheResult = result
+	updateCacheTime = time.Now()
+	updateCacheMu.Unlock()
+
+	writeJSON(w, result)
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

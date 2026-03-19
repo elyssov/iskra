@@ -6,10 +6,15 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.view.View
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -18,12 +23,21 @@ import iskramobile.Iskramobile
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var webView: WebView
+    private var webView: WebView? = null
     private var port: Int = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    companion object {
+        private const val TAG = "Iskra"
+        private const val START_TIMEOUT_MS = 30_000L
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Show splash screen immediately
+        setContentView(R.layout.activity_splash)
 
         // Request notification permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -34,21 +48,49 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Start Go core
-        try {
-            val dataDir = filesDir.absolutePath
-            port = Iskramobile.start(dataDir, 0).toInt()
-        } catch (e: Exception) {
-            Log.e("Iskra", "Failed to start Go core", e)
-            Toast.makeText(this, "Ошибка запуска: ${e.message}", Toast.LENGTH_LONG).show()
-            port = 0
+        // Set up timeout watchdog
+        val timeoutRunnable = Runnable {
+            if (port == 0) {
+                showError("Таймаут запуска ядра (30 сек). Попробуйте перезапустить приложение.")
+            }
         }
+        mainHandler.postDelayed(timeoutRunnable, START_TIMEOUT_MS)
 
-        if (port == 0) {
-            Toast.makeText(this, "Ошибка запуска ядра", Toast.LENGTH_LONG).show()
-            finish()
-            return
+        // Start Go core on background thread to avoid ANR
+        Thread {
+            try {
+                val dataDir = filesDir.absolutePath
+                val result = Iskramobile.start(dataDir, 0)
+                val startedPort = result.toInt()
+
+                mainHandler.removeCallbacks(timeoutRunnable)
+
+                if (startedPort == 0) {
+                    runOnUiThread { showError("Ядро вернуло порт 0") }
+                    return@Thread
+                }
+
+                runOnUiThread {
+                    port = startedPort
+                    onCoreReady()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start Go core", e)
+                mainHandler.removeCallbacks(timeoutRunnable)
+                runOnUiThread {
+                    showError("Ошибка запуска: ${e.message}")
+                }
+            }
+        }.apply {
+            name = "iskra-core-init"
+            isDaemon = true
+            start()
         }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun onCoreReady() {
+        Log.i(TAG, "Go core ready on port $port")
 
         // Start foreground service to keep alive
         try {
@@ -59,10 +101,10 @@ class MainActivity : AppCompatActivity() {
                 startService(serviceIntent)
             }
         } catch (e: Exception) {
-            Log.e("Iskra", "Failed to start foreground service", e)
+            Log.e(TAG, "Failed to start foreground service", e)
         }
 
-        // Setup WebView
+        // Setup WebView and replace splash
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -74,10 +116,21 @@ class MainActivity : AppCompatActivity() {
         }
 
         setContentView(webView)
-        webView.loadUrl("http://localhost:$port")
+        webView?.loadUrl("http://localhost:$port")
 
-        // Handle iskra:// deep links
+        // Handle any pending deep link
         handleIntent(intent)
+    }
+
+    private fun showError(message: String) {
+        Log.e(TAG, "Startup error: $message")
+
+        val subtitle = findViewById<TextView>(R.id.splash_subtitle)
+        val progress = findViewById<ProgressBar>(R.id.splash_progress)
+
+        subtitle?.text = message
+        subtitle?.setTextColor(0xFFDC2626.toInt()) // red
+        progress?.visibility = View.GONE
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -89,16 +142,17 @@ class MainActivity : AppCompatActivity() {
         val data = intent?.data ?: return
         if (data.scheme == "iskra") {
             val link = data.toString()
-            webView.evaluateJavascript(
+            webView?.evaluateJavascript(
                 "if(window._handleDeepLink) window._handleDeepLink('$link')",
                 null
             )
         }
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack()
+        if (webView?.canGoBack() == true) {
+            webView?.goBack()
         } else {
             super.onBackPressed()
         }
@@ -106,10 +160,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        mainHandler.removeCallbacksAndMessages(null)
         try {
             Iskramobile.stop()
         } catch (e: Exception) {
-            Log.e("Iskra", "Error stopping core", e)
+            Log.e(TAG, "Error stopping core", e)
         }
     }
 }
