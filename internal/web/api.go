@@ -18,7 +18,7 @@ import (
 )
 
 // Build number — increment on each iteration
-const BuildNumber = 7
+const BuildNumber = 8
 
 // API handles REST API requests.
 type API struct {
