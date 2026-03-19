@@ -32,19 +32,16 @@ func EnsureFirewallRule(appName string) {
 
 	log.Printf("[FW] Adding firewall rules for '%s' via UAC...", appName)
 
-	// Build netsh commands as a single script for UAC elevation
-	script := strings.Join([]string{
-		"netsh advfirewall firewall add rule name='" + appName + "' dir=in action=allow program='" + exePath + "' enable=yes profile=private",
-		"netsh advfirewall firewall add rule name='" + appName + "' dir=out action=allow program='" + exePath + "' enable=yes profile=private",
-	}, "; ")
+	// Build netsh commands
+	inRule := "netsh advfirewall firewall add rule name='" + appName + "' dir=in action=allow program='" + exePath + "' enable=yes profile=private"
+	outRule := "netsh advfirewall firewall add rule name='" + appName + "' dir=out action=allow program='" + exePath + "' enable=yes profile=private"
+	script := inRule + "; " + outRule
 
 	// Use PowerShell Start-Process with -Verb RunAs to trigger UAC dialog
-	cmd := exec.Command("powershell", "-Command",
-		"Start-Process", "powershell",
-		"-ArgumentList", "'-Command', '"+script+"'",
-		"-Verb", "RunAs",
-		"-Wait",
-	)
+	// The entire command must be a single -Command string for proper parsing
+	psCommand := "Start-Process -FilePath powershell -ArgumentList '-Command \"" + script + "\"' -Verb RunAs -Wait"
+
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", psCommand)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("[FW] UAC elevation failed or was declined: %v — %s", err, strings.TrimSpace(string(out)))
 	} else {

@@ -4,12 +4,14 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.View
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -19,7 +21,9 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import iskramobile.Iskramobile
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -113,6 +117,7 @@ class MainActivity : AppCompatActivity() {
             settings.allowContentAccess = false
             webViewClient = WebViewClient()
             webChromeClient = WebChromeClient()
+            addJavascriptInterface(UpdateBridge(), "IskraUpdate")
         }
 
         setContentView(webView)
@@ -165,6 +170,35 @@ class MainActivity : AppCompatActivity() {
             Iskramobile.stop()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping core", e)
+        }
+    }
+
+    // JS bridge: allows WebView to trigger APK installation
+    inner class UpdateBridge {
+        @JavascriptInterface
+        fun installApk(filename: String): Boolean {
+            return try {
+                val file = File(filesDir, filename)
+                if (!file.exists()) {
+                    Log.e(TAG, "APK not found: ${file.absolutePath}")
+                    return false
+                }
+                val uri = FileProvider.getUriForFile(
+                    this@MainActivity,
+                    "${packageName}.fileprovider",
+                    file
+                )
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Install APK failed", e)
+                false
+            }
         }
     }
 }

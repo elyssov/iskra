@@ -3,10 +3,12 @@ package web
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +21,7 @@ import (
 )
 
 // Build number — increment on each iteration
-const BuildNumber = 9
+const BuildNumber = 10
 
 // API handles REST API requests.
 type API struct {
@@ -1026,6 +1028,82 @@ func (a *API) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 	updateCacheMu.Unlock()
 
 	writeJSON(w, result)
+}
+
+// HandleUpdateDownload proxies download of an update asset from GitHub and saves locally.
+// POST /api/update/download with {"url":"https://...","filename":"iskra-build10.apk"}
+func (a *API) HandleUpdateDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		URL      string `json:"url"`
+		Filename string `json:"filename"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, map[string]interface{}{"error": "bad request"})
+		return
+	}
+	if req.URL == "" || req.Filename == "" {
+		writeJSON(w, map[string]interface{}{"error": "url and filename required"})
+		return
+	}
+
+	log.Printf("[Update] Downloading %s from %s", req.Filename, req.URL)
+
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(req.URL)
+	if err != nil {
+		log.Printf("[Update] Download error: %v", err)
+		writeJSON(w, map[string]interface{}{"error": "download failed: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[Update] Download HTTP %d", resp.StatusCode)
+		writeJSON(w, map[string]interface{}{"error": fmt.Sprintf("HTTP %d", resp.StatusCode)})
+		return
+	}
+
+	// Determine save path
+	savePath := filepath.Join(a.DataDir, req.Filename)
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("[Update] Read error: %v", err)
+		writeJSON(w, map[string]interface{}{"error": "read failed"})
+		return
+	}
+
+	if err := os.WriteFile(savePath, data, 0644); err != nil {
+		log.Printf("[Update] Save error: %v", err)
+		writeJSON(w, map[string]interface{}{"error": "save failed: " + err.Error()})
+		return
+	}
+
+	log.Printf("[Update] Saved %s (%d bytes) to %s", req.Filename, len(data), savePath)
+
+	// For Windows exe: if this is an exe, save next to current binary
+	exeSavePath := savePath
+	if strings.HasSuffix(req.Filename, ".exe") {
+		exePath, err := os.Executable()
+		if err == nil {
+			dir := filepath.Dir(exePath)
+			exeSavePath = filepath.Join(dir, req.Filename)
+			if exeSavePath != savePath {
+				os.WriteFile(exeSavePath, data, 0755)
+				log.Printf("[Update] Also saved exe to %s", exeSavePath)
+			}
+		}
+	}
+
+	writeJSON(w, map[string]interface{}{
+		"ok":   true,
+		"path": savePath,
+		"size": len(data),
+	})
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

@@ -240,7 +240,7 @@
     } catch(e) {}
   }
 
-  // === UPDATE CHECK ===
+  // === UPDATE CHECK & FOTA ===
   async function checkForUpdate() {
     try {
       const resp = await fetch('/api/update/check');
@@ -251,58 +251,38 @@
         banner.style.display = 'none';
         return;
       }
-      banner.style.display = 'block';
-      banner.innerHTML = `
-        <div class="update-banner-content">
-          <div class="update-banner-text">
-            <strong>Доступна версия ${esc(data.version)}</strong>
-          </div>
-          <button class="update-banner-btn" id="btn-update-show">Обновить</button>
-        </div>`;
-      banner.querySelector('#btn-update-show').addEventListener('click', () => {
-        showUpdateModal(data);
-      });
+      // Show update dialog immediately on startup
+      showUpdateModal(data);
     } catch(e) {
       console.error('Update check failed:', e);
     }
   }
 
   function showUpdateModal(data) {
-    // Remove existing modal if any
     let modal = document.getElementById('modal-update');
     if (modal) modal.remove();
 
-    // Detect platform
     const ua = navigator.userAgent.toLowerCase();
     const isAndroid = ua.indexOf('android') !== -1;
-    const isWindows = ua.indexOf('win') !== -1;
+    const isWindows = ua.indexOf('win') !== -1 && ua.indexOf('android') === -1;
 
-    // Build asset links
-    let assetsHTML = '';
+    // Find the right asset for this platform
+    let targetAsset = null;
     if (data.assets && data.assets.length > 0) {
-      const relevant = data.assets.filter(a => {
-        const name = a.name.toLowerCase();
-        if (isAndroid) return name.endsWith('.apk');
-        if (isWindows) return name.endsWith('.exe');
-        return true;
-      });
-      const showAll = relevant.length === 0 ? data.assets : relevant;
-      assetsHTML = showAll.map(a => {
-        const sizeMB = (a.size / 1048576).toFixed(1);
-        return `<a href="${esc(a.url)}" class="update-asset-link" target="_blank" rel="noopener">
-          ${esc(a.name)} <span class="update-asset-size">(${sizeMB} МБ)</span>
-        </a>`;
-      }).join('');
+      if (isAndroid) {
+        targetAsset = data.assets.find(a => a.name.toLowerCase().endsWith('.apk'));
+      } else if (isWindows) {
+        targetAsset = data.assets.find(a => a.name.toLowerCase().includes('windows') && a.name.toLowerCase().endsWith('.exe'));
+        if (!targetAsset) targetAsset = data.assets.find(a => a.name.toLowerCase().endsWith('.exe'));
+      } else {
+        targetAsset = data.assets.find(a => a.name.toLowerCase().includes('linux') && !a.name.toLowerCase().endsWith('.exe'));
+      }
     }
 
-    // Format changelog (simple markdown-like)
-    const changelog = (data.changelog || 'Нет описания').replace(/\n/g, '<br>');
+    const changelog = (data.changelog || '').replace(/\n/g, '<br>');
+    const sizeMB = targetAsset ? (targetAsset.size / 1048576).toFixed(1) : '?';
 
-    const platformHint = isAndroid
-      ? '<p class="update-hint">Скачайте APK и откройте его для установки.</p>'
-      : isWindows
-        ? '<p class="update-hint">Скачайте EXE, закройте Искру и замените старый файл новым.</p>'
-        : '<p class="update-hint">Скачайте файл для вашей платформы.</p>';
+    const platformName = isAndroid ? 'Android' : isWindows ? 'Windows' : 'Linux';
 
     modal = document.createElement('div');
     modal.id = 'modal-update';
@@ -311,17 +291,104 @@
     modal.innerHTML = `
       <div class="modal-content">
         <div class="modal-header">
-          <h3>Обновление до ${esc(data.version)}</h3>
+          <h3>Доступно обновление</h3>
           <button class="modal-close" onclick="closeModal('modal-update')">&times;</button>
         </div>
-        <div class="update-changelog">${changelog}</div>
-        ${platformHint}
-        <div class="update-assets">${assetsHTML}</div>
+        <p style="font-size:16px;text-align:center;margin:12px 0">
+          <strong>Версия ${esc(data.version)}</strong> для ${platformName}
+          ${targetAsset ? `<br><span style="color:var(--text-muted);font-size:13px">${sizeMB} МБ</span>` : ''}
+        </p>
+        ${changelog ? `<div class="update-changelog">${changelog}</div>` : ''}
+        <div id="update-progress" style="display:none;margin:12px 0">
+          <div style="background:var(--bg-tertiary);border-radius:8px;overflow:hidden;height:6px">
+            <div id="update-progress-bar" style="width:0%;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-dark));transition:width 0.3s"></div>
+          </div>
+          <p id="update-status" style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:8px">Скачивание...</p>
+        </div>
+        <div id="update-buttons" class="modal-buttons" style="justify-content:center;gap:12px;margin-top:16px">
+          ${targetAsset
+            ? `<button class="btn-primary btn-large" id="btn-do-update">Обновить сейчас</button>`
+            : `<p style="color:var(--text-muted)">Файл для вашей платформы не найден</p>`
+          }
+          <button class="btn-secondary" onclick="closeModal('modal-update')">Позже</button>
+        </div>
       </div>`;
     document.body.appendChild(modal);
     modal.addEventListener('click', e => {
       if (e.target === modal) modal.style.display = 'none';
     });
+
+    if (targetAsset) {
+      modal.querySelector('#btn-do-update').addEventListener('click', () => {
+        doUpdate(targetAsset, isAndroid, isWindows);
+      });
+    }
+  }
+
+  async function doUpdate(asset, isAndroid, isWindows) {
+    const btnArea = document.getElementById('update-buttons');
+    const progress = document.getElementById('update-progress');
+    const statusEl = document.getElementById('update-status');
+    const progressBar = document.getElementById('update-progress-bar');
+
+    // Hide buttons, show progress
+    btnArea.style.display = 'none';
+    progress.style.display = 'block';
+    statusEl.textContent = 'Скачивание ' + asset.name + '...';
+    progressBar.style.width = '10%';
+
+    try {
+      // Download via backend (it saves the file locally)
+      progressBar.style.width = '30%';
+      const resp = await fetch('/api/update/download', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url: asset.url, filename: asset.name})
+      });
+      const result = await resp.json();
+      progressBar.style.width = '90%';
+
+      if (result.error) {
+        statusEl.textContent = 'Ошибка: ' + result.error;
+        statusEl.style.color = 'var(--red)';
+        btnArea.style.display = 'flex';
+        return;
+      }
+
+      progressBar.style.width = '100%';
+
+      if (isAndroid) {
+        statusEl.textContent = 'Скачано! Открываю установщик...';
+        // Call Kotlin bridge to install APK via FileProvider
+        setTimeout(() => {
+          if (window.IskraUpdate && window.IskraUpdate.installApk) {
+            const ok = window.IskraUpdate.installApk(asset.name);
+            if (!ok) {
+              statusEl.innerHTML = 'Не удалось открыть установщик.<br>APK сохранён в памяти приложения.';
+              btnArea.innerHTML = '<button class="btn-secondary" onclick="closeModal(\'modal-update\')">Закрыть</button>';
+              btnArea.style.display = 'flex';
+            }
+          } else {
+            statusEl.innerHTML = 'APK скачан.<br><strong>Перезапустите приложение</strong> для обновления.';
+            btnArea.innerHTML = '<button class="btn-primary" onclick="location.reload()">Перезапустить</button>';
+            btnArea.style.display = 'flex';
+          }
+        }, 500);
+      } else if (isWindows) {
+        statusEl.innerHTML = 'Новая версия скачана!<br>Закройте Искру и запустите <strong>' + esc(asset.name) + '</strong>';
+        btnArea.innerHTML = '<button class="btn-secondary" onclick="closeModal(\'modal-update\')">Понятно</button>';
+        btnArea.style.display = 'flex';
+      } else {
+        statusEl.innerHTML = 'Скачано: ' + esc(result.path);
+        btnArea.innerHTML = '<button class="btn-secondary" onclick="closeModal(\'modal-update\')">Понятно</button>';
+        btnArea.style.display = 'flex';
+      }
+    } catch(e) {
+      console.error('Update download failed:', e);
+      statusEl.textContent = 'Ошибка загрузки: ' + e.message;
+      statusEl.style.color = 'var(--red)';
+      btnArea.style.display = 'flex';
+    }
   }
 
   // === ONLINE ===
