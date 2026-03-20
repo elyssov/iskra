@@ -1,0 +1,8 @@
+dist-release/
+android/
+tools/
+*.apk
+*.exe
+*.aar
+.git/
+.github/
