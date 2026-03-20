@@ -14,6 +14,8 @@ import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebViewClient
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -39,6 +41,16 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Catch native crashes for diagnostics
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            Log.e(TAG, "Uncaught exception in ${thread.name}", throwable)
+            try {
+                File(filesDir, "crash.log").writeText(
+                    "Thread: ${thread.name}\n${throwable.stackTraceToString()}"
+                )
+            } catch (_: Exception) {}
+        }
 
         // Show splash screen immediately
         setContentView(R.layout.activity_splash)
@@ -115,7 +127,14 @@ class MainActivity : AppCompatActivity() {
             settings.databaseEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
-            webViewClient = WebViewClient()
+            webViewClient = object : WebViewClient() {
+                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                    if (request?.isForMainFrame == true) {
+                        Log.w(TAG, "WebView load error, retrying in 1s...")
+                        mainHandler.postDelayed({ view?.reload() }, 1000)
+                    }
+                }
+            }
             webChromeClient = WebChromeClient()
             addJavascriptInterface(UpdateBridge(), "IskraUpdate")
         }

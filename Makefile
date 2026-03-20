@@ -19,9 +19,9 @@ build-linux:
 relay-linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/relay-linux ./cmd/relay/
 
-# Android .aar через gomobile
+# Android .aar через gomobile (16KB page alignment for Android 14+)
 build-aar:
-	gomobile bind -target=android -o android/app/libs/iskra.aar ./cmd/iskra-mobile/
+	CGO_LDFLAGS="-Wl,-z,max-page-size=16384" gomobile bind -target=android/arm64,android/arm -androidapi 24 -o android/app/libs/iskra.aar ./cmd/iskra-mobile/
 
 # Очистка
 clean:
