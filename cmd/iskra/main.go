@@ -16,6 +16,7 @@ import (
 	"github.com/iskra-messenger/iskra/internal/identity"
 	"github.com/iskra-messenger/iskra/internal/mesh"
 	"github.com/iskra-messenger/iskra/internal/message"
+	"github.com/iskra-messenger/iskra/internal/security"
 	"github.com/iskra-messenger/iskra/internal/store"
 	"github.com/iskra-messenger/iskra/internal/web"
 )
@@ -29,7 +30,6 @@ func main() {
 	restore := flag.String("restore", "", "Restore from mnemonic (24 words, space-separated)")
 	flag.Parse()
 
-	// Alpha: always log to stderr for debugging
 	log.SetOutput(os.Stderr)
 
 	// Ensure Windows Firewall allows mesh traffic
@@ -47,6 +47,13 @@ func main() {
 	keypair, mnemonic, isNew := loadOrCreateKeypair(*dataDir)
 	userID := identity.UserID(keypair.Ed25519Pub)
 
+	// Get seed for vault key derivation
+	seedData, _ := os.ReadFile(filepath.Join(*dataDir, "seed.key"))
+	var seed [32]byte
+	if len(seedData) == 32 {
+		copy(seed[:], seedData)
+	}
+
 	if isNew {
 		fmt.Println("╔══════════════════════════════════════════╗")
 		fmt.Println("║          🔥 ИСКРА — Новый ключ          ║")
@@ -62,7 +69,11 @@ func main() {
 		fmt.Println("╚══════════════════════════════════════════╝")
 	}
 
-	// Initialize store
+	// Check if PIN is set — determines if app starts locked
+	hasPIN := security.HasPIN(*dataDir)
+	locked := hasPIN
+
+	// Initialize stores (they start without vault key; key set after PIN verify)
 	hold, err := store.NewHold(filepath.Join(*dataDir, "hold"))
 	if err != nil {
 		log.Fatalf("Failed to create hold: %v", err)
@@ -100,6 +111,11 @@ func main() {
 		mode = "relay"
 	}
 
+	unlockCh := make(chan struct{})
+	if !locked {
+		close(unlockCh) // already unlocked
+	}
+
 	// Initialize API
 	api := &web.API{
 		Keypair:     keypair,
@@ -114,12 +130,17 @@ func main() {
 		Groups:      groups,
 		Mode:        mode,
 		DataDir:     *dataDir,
+		Seed:        seed,
+		Locked:      locked,
+		UnlockCh:    unlockCh,
 	}
 
 	// Message handler (shared between transport and relay)
 	handleMessage := func(msg *message.Message) {
 		if bloom.Contains(msg.ID) {
-			log.Printf("[MSG] Duplicate message, skipping")
+			if *debug {
+				log.Printf("[MSG] Duplicate message, skipping")
+			}
 			return
 		}
 		bloom.Add(msg.ID)
@@ -168,7 +189,11 @@ func main() {
 	if *relayURL != "" {
 		fmt.Printf("   Relay: %s\n", *relayURL)
 	}
-	fmt.Printf("   Режим: %s\n\n", mode)
+	fmt.Printf("   Режим: %s\n", mode)
+	if locked {
+		fmt.Printf("   🔒 PIN: требуется ввод\n")
+	}
+	fmt.Println()
 
 	// Auto-open browser
 	openBrowser(uiURL)

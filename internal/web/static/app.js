@@ -27,8 +27,236 @@
     return avatarColors[Math.abs(hash) % avatarColors.length];
   }
 
+  // === PIN SCREEN ===
+  let pinValue = '';
+  let pinMode = ''; // 'verify', 'setup', 'confirm'
+  let pinSetupFirst = ''; // first entry during setup
+
+  async function checkPINStatus() {
+    try {
+      const resp = await fetch('/api/pin/status');
+      const data = await resp.json();
+
+      if (data.locked) {
+        if (data.needsSetup) {
+          pinMode = 'setup';
+          document.getElementById('pin-subtitle').textContent = 'Установите PIN-код (4-6 цифр)';
+        } else {
+          pinMode = 'verify';
+          document.getElementById('pin-subtitle').textContent = 'Введите PIN-код';
+          if (data.attempts > 0) {
+            document.getElementById('pin-attempts').textContent =
+              `Осталось попыток: ${data.maxAttempts - data.attempts}`;
+          }
+        }
+        document.getElementById('pin-screen').style.display = 'flex';
+        return true; // locked
+      }
+      return false; // not locked
+    } catch(e) {
+      return false; // no PIN system = proceed normally
+    }
+  }
+
+  function setupPINKeypad() {
+    document.querySelectorAll('.pin-key[data-num]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (pinValue.length >= 6) return;
+        pinValue += btn.dataset.num;
+        updatePINDots();
+
+        // Auto-submit at 4+ digits when verify mode
+        if (pinMode === 'verify' && pinValue.length >= 4) {
+          setTimeout(() => submitPIN(), 150);
+        }
+      });
+    });
+
+    document.getElementById('pin-del').addEventListener('click', () => {
+      if (pinValue.length > 0) {
+        pinValue = pinValue.slice(0, -1);
+        updatePINDots();
+      }
+    });
+
+    // Keyboard support
+    document.addEventListener('keydown', (e) => {
+      if (document.getElementById('pin-screen').style.display === 'none') return;
+      if (e.key >= '0' && e.key <= '9' && pinValue.length < 6) {
+        pinValue += e.key;
+        updatePINDots();
+        if (pinMode === 'verify' && pinValue.length >= 4) {
+          setTimeout(() => submitPIN(), 150);
+        }
+      } else if (e.key === 'Backspace') {
+        pinValue = pinValue.slice(0, -1);
+        updatePINDots();
+      } else if (e.key === 'Enter' && pinValue.length >= 4) {
+        submitPIN();
+      }
+    });
+  }
+
+  function updatePINDots() {
+    const dots = document.querySelectorAll('.pin-dot');
+    dots.forEach((dot, i) => {
+      dot.classList.toggle('filled', i < pinValue.length);
+    });
+  }
+
+  async function submitPIN() {
+    if (pinValue.length < 4) return;
+
+    if (pinMode === 'setup') {
+      pinSetupFirst = pinValue;
+      pinMode = 'confirm';
+      pinValue = '';
+      updatePINDots();
+      document.getElementById('pin-subtitle').textContent = 'Повторите PIN-код';
+      document.getElementById('pin-error').textContent = '';
+      return;
+    }
+
+    if (pinMode === 'confirm') {
+      if (pinValue !== pinSetupFirst) {
+        document.getElementById('pin-error').textContent = 'PIN-коды не совпадают';
+        shakePIN();
+        pinMode = 'setup';
+        pinSetupFirst = '';
+        pinValue = '';
+        setTimeout(() => {
+          updatePINDots();
+          document.getElementById('pin-subtitle').textContent = 'Установите PIN-код (4-6 цифр)';
+        }, 500);
+        return;
+      }
+      // PINs match — set up
+      try {
+        const resp = await fetch('/api/pin/setup', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({pin: pinValue})
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          successPIN();
+          setTimeout(() => {
+            document.getElementById('pin-screen').style.display = 'none';
+            proceedAfterPIN();
+          }, 600);
+        } else {
+          document.getElementById('pin-error').textContent = data.error || 'Ошибка';
+          shakePIN();
+          pinValue = '';
+          setTimeout(updatePINDots, 500);
+        }
+      } catch(e) {
+        document.getElementById('pin-error').textContent = 'Ошибка связи';
+        shakePIN();
+      }
+      return;
+    }
+
+    // Verify mode
+    try {
+      const resp = await fetch('/api/pin/verify', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pin: pinValue})
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        successPIN();
+        setTimeout(() => {
+          document.getElementById('pin-screen').style.display = 'none';
+          proceedAfterPIN();
+        }, 600);
+      } else if (data.wiped) {
+        // Wipe complete — reload to show decoy data
+        localStorage.setItem('iskra-started', '1');
+        setTimeout(() => location.reload(), 500);
+      } else {
+        document.getElementById('pin-error').textContent = `Неверный PIN`;
+        if (data.remaining !== undefined) {
+          document.getElementById('pin-attempts').textContent =
+            `Осталось попыток: ${data.remaining}`;
+        }
+        shakePIN();
+        pinValue = '';
+        setTimeout(updatePINDots, 500);
+      }
+    } catch(e) {
+      document.getElementById('pin-error').textContent = 'Ошибка связи';
+      shakePIN();
+    }
+  }
+
+  function shakePIN() {
+    const dots = document.getElementById('pin-dots');
+    dots.classList.add('shake');
+    setTimeout(() => dots.classList.remove('shake'), 500);
+  }
+
+  function successPIN() {
+    const dots = document.getElementById('pin-dots');
+    dots.classList.add('success');
+    setTimeout(() => dots.classList.remove('success'), 600);
+  }
+
+  // === PANIC MODE ===
+  let panicPressTimer = null;
+
+  function setupPanicMode() {
+    // Long press on app title (flame) to trigger panic
+    const title = document.getElementById('app-title');
+    if (!title) return;
+
+    title.addEventListener('mousedown', startPanicTimer);
+    title.addEventListener('touchstart', startPanicTimer, {passive: true});
+    title.addEventListener('mouseup', clearPanicTimer);
+    title.addEventListener('mouseleave', clearPanicTimer);
+    title.addEventListener('touchend', clearPanicTimer);
+    title.addEventListener('touchcancel', clearPanicTimer);
+  }
+
+  function startPanicTimer() {
+    panicPressTimer = setTimeout(() => {
+      const code = prompt('Введите код:');
+      if (code) {
+        fetch('/api/panic', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({code: code})
+        }).then(r => r.json()).then(data => {
+          if (data.wiped) {
+            // Reload — will show decoy data (fake contacts + chats)
+            localStorage.setItem('iskra-started', '1');
+            setTimeout(() => location.reload(), 500);
+          }
+        });
+      }
+    }, 3000); // 3 seconds hold
+  }
+
+  function clearPanicTimer() {
+    if (panicPressTimer) {
+      clearTimeout(panicPressTimer);
+      panicPressTimer = null;
+    }
+  }
+
   // === INIT ===
   async function init() {
+    setupPINKeypad();
+
+    // Check if PIN required
+    const locked = await checkPINStatus();
+    if (locked) return; // PIN screen shown, wait for unlock
+
+    proceedAfterPIN();
+  }
+
+  async function proceedAfterPIN() {
     const identity = await loadIdentity();
     if (!identity) return;
 
@@ -48,6 +276,7 @@
     updateUnreadCounts();
     startPolling();
     setupEvents();
+    setupPanicMode();
   }
 
   // === ONBOARDING ===

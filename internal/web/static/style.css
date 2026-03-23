@@ -40,6 +40,132 @@ body {
 }
 
 /* ============================
+   PIN SCREEN
+   ============================ */
+#pin-screen {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #0F172A 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.5s ease;
+}
+.pin-container {
+  text-align: center;
+  max-width: 320px;
+  width: 100%;
+}
+.pin-flame {
+  font-size: 56px;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 0 24px rgba(251,191,36,0.5));
+  animation: flameFloat 3s ease-in-out infinite;
+}
+.pin-title {
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.5px;
+  margin-bottom: 4px;
+}
+.pin-subtitle {
+  font-size: 14px;
+  color: rgba(255,255,255,0.6);
+  margin-bottom: 28px;
+}
+.pin-dots {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.pin-dot {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.3);
+  transition: all 0.2s ease;
+}
+.pin-dot.filled {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(59,130,246,0.5);
+}
+.pin-error {
+  color: #EF4444;
+  font-size: 13px;
+  height: 20px;
+  margin-bottom: 8px;
+  transition: opacity 0.2s;
+}
+.pin-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  max-width: 260px;
+  margin: 0 auto;
+}
+.pin-key {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  font-size: 26px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto;
+  transition: all 0.15s ease;
+  backdrop-filter: blur(4px);
+  -webkit-tap-highlight-color: transparent;
+}
+.pin-key:hover { background: rgba(255,255,255,0.12); }
+.pin-key:active {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(0.92);
+}
+.pin-key-empty {
+  visibility: hidden;
+}
+.pin-key-del {
+  font-size: 22px;
+  color: rgba(255,255,255,0.6);
+}
+.pin-attempts {
+  margin-top: 16px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+}
+
+@keyframes pinShake {
+  0%, 100% { transform: translateX(0); }
+  15%, 45%, 75% { transform: translateX(-8px); }
+  30%, 60%, 90% { transform: translateX(8px); }
+}
+.pin-dots.shake {
+  animation: pinShake 0.5s ease;
+}
+.pin-dots.shake .pin-dot.filled {
+  background: #EF4444;
+  border-color: #EF4444;
+  box-shadow: 0 0 8px rgba(239,68,68,0.5);
+}
+
+@keyframes pinSuccess {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+.pin-dots.success .pin-dot.filled {
+  background: var(--green);
+  border-color: var(--green);
+  box-shadow: 0 0 12px rgba(16,185,129,0.5);
+  animation: pinSuccess 0.3s ease;
+}
+
+/* ============================
    ONBOARDING
    ============================ */
 #onboarding {

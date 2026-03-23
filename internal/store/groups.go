@@ -7,6 +7,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/iskra-messenger/iskra/internal/security"
 )
 
 // GroupMember represents a member of a group chat.
@@ -46,6 +48,7 @@ type Groups struct {
 	groups   []Group
 	messages map[string][]GroupMessage // keyed by group ID
 	mu       sync.RWMutex
+	VaultKey *[32]byte
 }
 
 // NewGroups creates or loads a groups store.
@@ -187,6 +190,13 @@ func (g *Groups) load() error {
 	if err != nil {
 		return err
 	}
+	// Try vault decryption if key is set and data isn't plain JSON
+	if g.VaultKey != nil && len(data) > 0 && data[0] != '{' {
+		decrypted, err := security.DecryptData(data, g.VaultKey)
+		if err == nil {
+			data = decrypted
+		}
+	}
 	var stored struct {
 		Groups   []Group                  `json:"groups"`
 		Messages map[string][]GroupMessage `json:"messages"`
@@ -201,6 +211,14 @@ func (g *Groups) load() error {
 	return nil
 }
 
+// SetVaultKey sets the encryption key and reloads data.
+func (g *Groups) SetVaultKey(key *[32]byte) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.VaultKey = key
+	g.load()
+}
+
 func (g *Groups) save() error {
 	stored := struct {
 		Groups   []Group                  `json:"groups"`
@@ -212,6 +230,13 @@ func (g *Groups) save() error {
 	data, err := json.MarshalIndent(stored, "", "  ")
 	if err != nil {
 		return err
+	}
+	if g.VaultKey != nil {
+		encrypted, err := security.EncryptData(data, g.VaultKey)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(g.path, encrypted, 0600)
 	}
 	return os.WriteFile(g.path, data, 0600)
 }

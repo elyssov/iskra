@@ -27,6 +27,12 @@ func NewServer(api *API, port int) *Server {
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
+	// PIN/Security routes (always available, even when locked)
+	mux.HandleFunc("/api/pin/status", s.api.HandlePINStatus)
+	mux.HandleFunc("/api/pin/setup", s.api.HandlePINSetup)
+	mux.HandleFunc("/api/pin/verify", s.api.HandlePINVerify)
+	mux.HandleFunc("/api/panic", s.api.HandlePanic)
+
 	// API routes
 	mux.HandleFunc("/api/identity", s.api.HandleIdentity)
 	mux.HandleFunc("/api/contacts", s.api.HandleContacts)

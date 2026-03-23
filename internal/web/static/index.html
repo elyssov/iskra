@@ -8,6 +8,39 @@
 </head>
 <body>
 
+<!-- Экран PIN -->
+<div id="pin-screen" style="display:none">
+  <div class="pin-container">
+    <div class="pin-flame">🔥</div>
+    <h1 class="pin-title">Искра</h1>
+    <p class="pin-subtitle" id="pin-subtitle">Введите PIN-код</p>
+    <div class="pin-dots" id="pin-dots">
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+    </div>
+    <div class="pin-error" id="pin-error"></div>
+    <div class="pin-keypad">
+      <button class="pin-key" data-num="1">1</button>
+      <button class="pin-key" data-num="2">2</button>
+      <button class="pin-key" data-num="3">3</button>
+      <button class="pin-key" data-num="4">4</button>
+      <button class="pin-key" data-num="5">5</button>
+      <button class="pin-key" data-num="6">6</button>
+      <button class="pin-key" data-num="7">7</button>
+      <button class="pin-key" data-num="8">8</button>
+      <button class="pin-key" data-num="9">9</button>
+      <button class="pin-key pin-key-empty"></button>
+      <button class="pin-key" data-num="0">0</button>
+      <button class="pin-key pin-key-del" id="pin-del">&larr;</button>
+    </div>
+    <div class="pin-attempts" id="pin-attempts"></div>
+  </div>
+</div>
+
 <!-- Экран первого запуска -->
 <div id="onboarding" style="display:none">
   <div class="onboarding-container">
