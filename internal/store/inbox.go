@@ -6,6 +6,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/iskra-messenger/iskra/internal/security"
 )
 
 // InboxMessage is a decrypted message stored locally.
@@ -24,6 +26,7 @@ type Inbox struct {
 	dir      string
 	messages map[string][]InboxMessage // keyed by contact UserID
 	mu       sync.RWMutex
+	VaultKey *[32]byte
 }
 
 // NewInbox creates or loads an inbox.
@@ -103,6 +106,13 @@ func (in *Inbox) Save(path string) error {
 	if err != nil {
 		return err
 	}
+	if in.VaultKey != nil {
+		encrypted, err := security.EncryptData(data, in.VaultKey)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(path, encrypted, 0600)
+	}
 	return os.WriteFile(path, data, 0600)
 }
 
@@ -117,6 +127,13 @@ func (in *Inbox) Load(path string) error {
 			return nil
 		}
 		return err
+	}
+	// Try vault decryption if key is set and data isn't plain JSON
+	if in.VaultKey != nil && len(data) > 0 && data[0] != '{' {
+		decrypted, err := security.DecryptData(data, in.VaultKey)
+		if err == nil {
+			data = decrypted
+		}
 	}
 	return json.Unmarshal(data, &in.messages)
 }

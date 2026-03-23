@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/iskra-messenger/iskra/internal/identity"
+	"github.com/iskra-messenger/iskra/internal/security"
 )
 
 // Contact represents a known user.
@@ -25,6 +26,7 @@ type Contacts struct {
 	path     string
 	contacts []Contact
 	mu       sync.RWMutex
+	VaultKey *[32]byte // if set, encrypt/decrypt on save/load
 }
 
 // NewContacts creates or loads a contacts store.
@@ -34,6 +36,14 @@ func NewContacts(path string) (*Contacts, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// SetVaultKey sets the encryption key and reloads data.
+func (c *Contacts) SetVaultKey(key *[32]byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.VaultKey = key
+	c.load()
 }
 
 // Add adds a new contact.
@@ -196,6 +206,14 @@ func (c *Contacts) load() error {
 	if err != nil {
 		return err
 	}
+	// Try vault decryption if key is set and data isn't plain JSON
+	if c.VaultKey != nil && len(data) > 0 && data[0] != '[' {
+		decrypted, err := security.DecryptData(data, c.VaultKey)
+		if err == nil {
+			data = decrypted
+		}
+		// If decryption fails, try as plain JSON (migration from unencrypted)
+	}
 	return json.Unmarshal(data, &c.contacts)
 }
 
@@ -203,6 +221,13 @@ func (c *Contacts) save() error {
 	data, err := json.MarshalIndent(c.contacts, "", "  ")
 	if err != nil {
 		return err
+	}
+	if c.VaultKey != nil {
+		encrypted, err := security.EncryptData(data, c.VaultKey)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(c.path, encrypted, 0600)
 	}
 	return os.WriteFile(c.path, data, 0600)
 }

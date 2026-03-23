@@ -17,6 +17,7 @@ import (
 	"github.com/iskra-messenger/iskra/internal/identity"
 	"github.com/iskra-messenger/iskra/internal/message"
 	"github.com/iskra-messenger/iskra/internal/mesh"
+	"github.com/iskra-messenger/iskra/internal/security"
 	"github.com/iskra-messenger/iskra/internal/store"
 )
 
@@ -37,6 +38,10 @@ type API struct {
 	Groups      *store.Groups
 	Mode        string // "lan", "relay", "offline"
 	DataDir     string // For restore functionality
+	Seed        [32]byte
+	Locked      bool     // true if PIN required and not yet verified
+	VaultKey    *[32]byte
+	UnlockCh    chan struct{} // closed when PIN verified / setup complete
 }
 
 type identityResponse struct {
@@ -1104,6 +1109,161 @@ func (a *API) HandleUpdateDownload(w http.ResponseWriter, r *http.Request) {
 		"path": savePath,
 		"size": len(data),
 	})
+}
+
+// HandlePINStatus returns the current PIN/lock state.
+func (a *API) HandlePINStatus(w http.ResponseWriter, r *http.Request) {
+	hasPin := security.HasPIN(a.DataDir)
+	attempts := security.GetAttempts(a.DataDir)
+	writeJSON(w, map[string]interface{}{
+		"locked":      a.Locked,
+		"needsSetup":  !hasPin,
+		"attempts":    attempts,
+		"maxAttempts":  security.MaxAttempts,
+	})
+}
+
+// HandlePINSetup sets up a new PIN (first time or after wipe).
+func (a *API) HandlePINSetup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		PIN string `json:"pin"`
+	}
+	if err := readJSON(r, &req); err != nil || len(req.PIN) < 4 || len(req.PIN) > 6 {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "PIN должен быть от 4 до 6 цифр"})
+		return
+	}
+
+	if err := security.SetPIN(a.DataDir, req.PIN); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	// Derive storage key and unlock
+	key := security.DeriveStorageKey(a.Seed, req.PIN)
+	a.VaultKey = &key
+
+	// Re-save existing stores encrypted (migration)
+	if a.Contacts != nil {
+		a.Contacts.VaultKey = &key
+	}
+	if a.Inbox != nil {
+		a.Inbox.VaultKey = &key
+	}
+	if a.Groups != nil {
+		a.Groups.VaultKey = &key
+	}
+
+	a.Locked = false
+	if a.UnlockCh != nil {
+		select {
+		case <-a.UnlockCh:
+		default:
+			close(a.UnlockCh)
+		}
+	}
+
+	log.Println("[PIN] PIN set, stores encrypted")
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// HandlePINVerify verifies the PIN and unlocks the app.
+func (a *API) HandlePINVerify(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		PIN string `json:"pin"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "bad request"})
+		return
+	}
+
+	// Check attempts
+	attempts := security.GetAttempts(a.DataDir)
+	if attempts >= security.MaxAttempts {
+		log.Println("[PIN] Max attempts reached, wiping")
+		security.WipeAll(a.DataDir)
+		security.GenerateDecoy(a.DataDir)
+		writeJSON(w, map[string]interface{}{"ok": false, "wiped": true, "error": "Данные уничтожены"})
+		return
+	}
+
+	if !security.VerifyPIN(a.DataDir, req.PIN) {
+		newAttempts := security.IncrementAttempts(a.DataDir)
+		remaining := security.MaxAttempts - newAttempts
+		if remaining <= 0 {
+			log.Println("[PIN] Max attempts reached after verify, wiping")
+			security.WipeAll(a.DataDir)
+			security.GenerateDecoy(a.DataDir)
+			writeJSON(w, map[string]interface{}{"ok": false, "wiped": true, "error": "Данные уничтожены"})
+			return
+		}
+		writeJSON(w, map[string]interface{}{"ok": false, "remaining": remaining})
+		return
+	}
+
+	security.ResetAttempts(a.DataDir)
+
+	// Derive storage key and set on stores
+	key := security.DeriveStorageKey(a.Seed, req.PIN)
+	a.VaultKey = &key
+
+	if a.Contacts != nil {
+		a.Contacts.SetVaultKey(&key)
+	}
+	if a.Inbox != nil {
+		a.Inbox.VaultKey = &key
+		a.Inbox.Load(filepath.Join(a.DataDir, "inbox.json"))
+	}
+	if a.Groups != nil {
+		a.Groups.SetVaultKey(&key)
+	}
+
+	a.Locked = false
+	if a.UnlockCh != nil {
+		select {
+		case <-a.UnlockCh:
+		default:
+			close(a.UnlockCh)
+		}
+	}
+
+	log.Println("[PIN] Unlocked successfully")
+	writeJSON(w, map[string]interface{}{"ok": true})
+}
+
+// HandlePanic triggers secure data wipe.
+func (a *API) HandlePanic(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false})
+		return
+	}
+
+	// Default panic code: "159" — can be made configurable later
+	if req.Code != "159" {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "неверный код"})
+		return
+	}
+
+	log.Println("[PANIC] Panic mode triggered!")
+	security.WipeAll(a.DataDir)
+	security.GenerateDecoy(a.DataDir)
+	log.Println("[PANIC] Wipe complete, decoy generated")
+
+	writeJSON(w, map[string]interface{}{"ok": true, "wiped": true})
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
