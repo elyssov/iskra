@@ -151,6 +151,9 @@
     if (hasContacts) contacts.forEach(c => items.push({type: 'contact', data: c, ts: lastActivity[c.user_id] || 0}));
     items.sort((a, b) => b.ts - a.ts);
 
+    // Check which contacts are online
+    const onlineSet = new Set(onlinePeers.map(p => p.userID));
+
     let html = items.map(item => {
       if (item.type === 'group') {
         const g = item.data;
@@ -158,11 +161,19 @@
         const unread = unreadCounts['g:' + g.id] || 0;
         const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
         const preview = lastMessages['g:' + g.id] || (g.members ? g.members.length + ' участников' : '');
+        const timeStr = formatContactTime(lastActivity['g:' + g.id]);
+        const timeClass = unread > 0 ? ' has-unread' : '';
         return `<div class="contact-item group-item${active}" data-gid="${g.id}">
           <div class="contact-avatar" style="background:#6c5ce7">&#128101;</div>
           <div class="contact-info">
-            <div class="contact-name">${esc(g.name)}${badge}</div>
-            <div class="contact-last">${esc(preview)}</div>
+            <div class="contact-top-row">
+              <span class="contact-name">${esc(g.name)}</span>
+              <span class="contact-time${timeClass}">${timeStr}</span>
+            </div>
+            <div class="contact-bottom-row">
+              <span class="contact-last">${esc(preview)}</span>
+              ${badge}
+            </div>
           </div>
         </div>`;
       } else {
@@ -173,11 +184,21 @@
         const unread = unreadCounts[c.user_id] || 0;
         const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
         const preview = lastMessages[c.user_id] || '';
+        const isOnline = onlineSet.has(c.user_id);
+        const onlineDot = isOnline ? '<span class="avatar-online-dot"></span>' : '';
+        const timeStr = formatContactTime(lastActivity[c.user_id]);
+        const timeClass = unread > 0 ? ' has-unread' : '';
         return `<div class="contact-item${active}" data-uid="${c.user_id}">
-          <div class="contact-avatar" style="background:${color}">${initial}</div>
+          <div class="contact-avatar" style="background:${color}">${initial}${onlineDot}</div>
           <div class="contact-info">
-            <div class="contact-name">${esc(c.name)}${badge}</div>
-            <div class="contact-last">${preview ? esc(preview) : c.user_id}</div>
+            <div class="contact-top-row">
+              <span class="contact-name">${esc(c.name)}</span>
+              <span class="contact-time${timeClass}">${timeStr}</span>
+            </div>
+            <div class="contact-bottom-row">
+              <span class="contact-last">${preview ? esc(preview) : ''}</span>
+              ${badge}
+            </div>
           </div>
         </div>`;
       }
@@ -487,6 +508,8 @@
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
     document.getElementById('app').classList.add('chat-open');
+    document.getElementById('chat-encrypted').style.display = 'flex';
+    document.getElementById('typing-indicator').style.display = 'none';
     document.getElementById('btn-delete-chat').style.display = 'inline-flex';
     document.getElementById('btn-rename-contact').style.display = 'none';
 
@@ -532,7 +555,7 @@
     }
     container.innerHTML = msgs.map((m, idx) => {
       const cls = m.outgoing ? 'out' : 'in';
-      const time = formatTime(m.timestamp);
+      const dt = formatDateTime(m.timestamp);
       const sender = m.outgoing ? '' : `<div class="group-sender" style="color:${getAvatarColor(m.from_name)}">${esc(m.from_name)}</div>`;
       let replyBlock = '';
       if (m.reply_to) {
@@ -544,9 +567,10 @@
       }
       return `<div class="message ${cls}" data-msg-idx="${idx}">
         ${sender}
+        <div class="msg-datetime">${dt}</div>
         ${replyBlock}
-        <div>${esc(m.text)}</div>
-        <div class="meta"><span>${time}</span></div>
+        <div class="msg-text">${esc(m.text)}</div>
+        <div class="meta">${lockSVG}</div>
       </div>`;
     }).join('');
 
@@ -654,6 +678,8 @@
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
     document.getElementById('app').classList.add('chat-open');
+    document.getElementById('chat-encrypted').style.display = 'flex';
+    document.getElementById('typing-indicator').style.display = 'none';
 
     // Show chat action buttons
     document.getElementById('btn-delete-chat').style.display = 'inline-flex';
@@ -703,7 +729,7 @@
     }
     container.innerHTML = msgs.map(m => {
       const cls = m.outgoing ? 'out' : 'in';
-      const time = formatTime(m.timestamp);
+      const dt = formatDateTime(m.timestamp);
       let check = '';
       if (m.outgoing) {
         check = m.status === 'delivered'
@@ -711,8 +737,9 @@
           : '<span class="check">✓</span>';
       }
       return `<div class="message ${cls}">
-        <div>${esc(m.text)}</div>
-        <div class="meta"><span>${time}</span>${check}</div>
+        <div class="msg-datetime">${dt}</div>
+        <div class="msg-text">${esc(m.text)}</div>
+        <div class="meta">${lockSVG}${check}</div>
       </div>`;
     }).join('');
     container.scrollTop = container.scrollHeight;
@@ -726,6 +753,43 @@
     const date = d.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
     return `${date} ${time}`;
   }
+
+  // Full date+time for message bubble header
+  function formatDateTime(ts) {
+    const d = new Date(ts * 1000);
+    const now = new Date();
+    const time = d.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (d.toDateString() === now.toDateString()) {
+      return `Сегодня, ${time}`;
+    } else if (d.toDateString() === yesterday.toDateString()) {
+      return `Вчера, ${time}`;
+    }
+    const date = d.toLocaleDateString('ru-RU', {day:'numeric', month:'long'});
+    return `${date}, ${time}`;
+  }
+
+  // Short time for contact list sidebar
+  function formatContactTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts * 1000);
+    const now = new Date();
+    const time = d.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (d.toDateString() === now.toDateString()) return time;
+    if (d.toDateString() === yesterday.toDateString()) return 'Вчера';
+    if (d.getFullYear() === now.getFullYear()) {
+      return d.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
+    }
+    return d.toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit', year:'2-digit'});
+  }
+
+  // Lock icon SVG (inline, tiny)
+  const lockSVG = '<span class="msg-lock"><svg viewBox="0 0 24 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span>';
 
   async function sendMessage() {
     if (!currentContact) return;
@@ -784,6 +848,8 @@
       document.getElementById('welcome-screen').style.display = 'flex';
       document.getElementById('btn-delete-chat').style.display = 'none';
       document.getElementById('btn-rename-contact').style.display = 'none';
+      document.getElementById('chat-encrypted').style.display = 'none';
+      document.getElementById('typing-indicator').style.display = 'none';
       currentContact = null;
       currentGroup = null;
     });
@@ -1026,6 +1092,30 @@
       if (e.key === 'Escape') {
         document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
       }
+    });
+
+    // Scroll-to-bottom FAB
+    const messagesEl = document.getElementById('messages');
+    const scrollBtn = document.getElementById('scroll-bottom');
+    if (messagesEl && scrollBtn) {
+      messagesEl.addEventListener('scroll', () => {
+        const distFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+        if (distFromBottom > 200) {
+          scrollBtn.style.display = 'flex';
+        } else {
+          scrollBtn.style.display = 'none';
+        }
+      });
+      scrollBtn.addEventListener('click', () => {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        scrollBtn.style.display = 'none';
+      });
+    }
+
+    // Send button ripple effect
+    document.getElementById('btn-send').addEventListener('click', function() {
+      this.classList.add('ripple');
+      setTimeout(() => this.classList.remove('ripple'), 500);
     });
   }
 
