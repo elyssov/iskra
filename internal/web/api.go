@@ -20,8 +20,8 @@ import (
 	"github.com/iskra-messenger/iskra/internal/store"
 )
 
-// Build number — increment on each iteration
-const BuildNumber = 11
+// Build number — major.minor: major = feature builds, minor = polish/fix builds
+const BuildNumber = "11.1"
 
 // API handles REST API requests.
 type API struct {
@@ -62,7 +62,7 @@ type statusResponse struct {
 	Relay    bool   `json:"relay"`
 	HoldSize int    `json:"holdSize"`
 	Version  string `json:"version"`
-	Build    int    `json:"build"`
+	Build    string `json:"build"`
 }
 
 // HandleIdentity returns the user's identity info.
@@ -235,7 +235,7 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		Peers:    a.Peers.Count(),
 		Relay:    relayConnected,
 		HoldSize: a.Hold.Count(),
-		Version:  "0.1.9-alpha",
+		Version:  "0.2.0-alpha",
 		Build:    BuildNumber,
 	}
 	writeJSON(w, resp)
