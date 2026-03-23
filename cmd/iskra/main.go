@@ -27,6 +27,7 @@ func main() {
 	debug := flag.Bool("debug", false, "Enable debug logging")
 	meshPort := flag.Int("mesh-port", 0, "Mesh transport port (0 = random)")
 	relayURL := flag.String("relay", "wss://iskra-relay.onrender.com/ws", "Relay server URL (wss://host/ws)")
+	udpRelay := flag.String("udp-relay", "", "UDP relay address host:port (fallback when WS relay blocked)")
 	restore := flag.String("restore", "", "Restore from mnemonic (24 words, space-separated)")
 	flag.Parse()
 
@@ -106,9 +107,19 @@ func main() {
 
 	// Initialize relay if specified
 	var relayClient *mesh.RelayClient
+	var udpTransport *mesh.UDPTransport
 	if *relayURL != "" {
 		relayClient = mesh.NewRelayClient(*relayURL, keypair.Ed25519Pub, keypair.X25519Pub)
 		mode = "relay"
+	}
+
+	// Initialize UDP transport (fallback when WebSocket relay is blocked)
+	if *udpRelay != "" {
+		var err error
+		udpTransport, err = mesh.NewUDPTransport(keypair.Ed25519Pub, *udpRelay)
+		if err != nil {
+			log.Printf("[UDP] Failed to create UDP transport: %v", err)
+		}
 	}
 
 	unlockCh := make(chan struct{})
@@ -160,6 +171,14 @@ func main() {
 			log.Printf("Relay: will retry in background")
 		}
 	}
+	if udpTransport != nil {
+		udpTransport.SetOnMessage(handleMessage)
+		if err := udpTransport.Start(); err != nil {
+			log.Printf("[UDP] Start error: %v", err)
+		} else {
+			log.Printf("[UDP] Fallback transport active")
+		}
+	}
 
 	// Start LAN discovery
 	discovery := mesh.NewDiscovery(keypair.Ed25519Pub, transport.Port(), peers)
@@ -189,6 +208,9 @@ func main() {
 	if *relayURL != "" {
 		fmt.Printf("   Relay: %s\n", *relayURL)
 	}
+	if *udpRelay != "" {
+		fmt.Printf("   UDP:   %s (обфускация)\n", *udpRelay)
+	}
 	fmt.Printf("   Режим: %s\n", mode)
 	if locked {
 		fmt.Printf("   🔒 PIN: требуется ввод\n")
@@ -210,6 +232,9 @@ func main() {
 	transport.Stop()
 	if relayClient != nil {
 		relayClient.Stop()
+	}
+	if udpTransport != nil {
+		udpTransport.Stop()
 	}
 	server.Stop()
 	fmt.Println("Готово.")
