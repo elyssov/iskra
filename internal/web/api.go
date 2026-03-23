@@ -1006,7 +1006,7 @@ func (a *API) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// Compare versions: strip leading 'v' and compare as strings
 	remoteVer := strings.TrimPrefix(release.TagName, "v")
-	localVer := "0.1.9-alpha"
+	localVer := "0.2.0-alpha"
 
 	available := remoteVer != localVer && remoteVer > localVer
 	log.Printf("[Update] Local=%s Remote=%s Available=%v", localVer, remoteVer, available)
