@@ -295,6 +295,32 @@
     startPolling();
     setupEvents();
     setupPanicMode();
+    setupKeyboardResize();
+  }
+
+  // Keep input visible above Android soft keyboard
+  function setupKeyboardResize() {
+    if (!window.visualViewport) return;
+    const vv = window.visualViewport;
+    const chatArea = document.getElementById('chat-area');
+
+    function onResize() {
+      // When keyboard opens, visualViewport.height shrinks
+      const keyboardOffset = window.innerHeight - vv.height;
+      if (keyboardOffset > 50) {
+        chatArea.style.paddingBottom = keyboardOffset + 'px';
+      } else {
+        chatArea.style.paddingBottom = '0';
+      }
+      // Scroll input into view
+      const input = document.getElementById('msg-input');
+      if (input && document.activeElement === input) {
+        input.scrollIntoView({block: 'nearest'});
+      }
+    }
+
+    vv.addEventListener('resize', onResize);
+    vv.addEventListener('scroll', onResize);
   }
 
   // === ONBOARDING ===
