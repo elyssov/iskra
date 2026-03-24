@@ -246,7 +246,7 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		Peers:    a.Peers.Count(),
 		Relay:    relayConnected,
 		HoldSize: a.Hold.Count(),
-		Version:  "0.4.0-alpha",
+		Version:  "0.5.0-alpha",
 		Build:    BuildNumber,
 	}
 	writeJSON(w, resp)
@@ -1013,7 +1013,7 @@ func (a *API) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// Compare: if remote tag differs from local version, update is available
 	remoteVer := strings.TrimPrefix(release.TagName, "v")
-	localVer := "0.4.0-alpha"
+	localVer := "0.5.0-alpha"
 
 	// Extract remote build number from APK asset name (iskra-buildXX.apk)
 	remoteBuild := ""
