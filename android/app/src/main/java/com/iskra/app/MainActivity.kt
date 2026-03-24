@@ -160,7 +160,7 @@ class MainActivity : AppCompatActivity() {
             settings.saveFormData = false
             // Disable autofill to prevent keyboard from learning mnemonic words
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO
+                importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_NO
             }
             webViewClient = object : WebViewClient() {
                 override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
