@@ -743,11 +743,6 @@ body {
   min-height: 0; /* prevent flex overflow */
 }
 
-/* Messages area — flex-grows to fill, input stays at bottom */
-#messages {
-  display: none; /* shown when chat is open */
-}
-
 /* --- Chat Header --- */
 #chat-header {
   padding: 12px 18px;
@@ -931,6 +926,7 @@ body {
 
 /* --- Messages Area --- */
 #messages {
+  display: none; /* shown when chat opens via JS: display=block */
   flex: 1;
   overflow-y: auto;
   padding: 12px 20px 12px;

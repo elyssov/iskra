@@ -763,7 +763,7 @@
     document.getElementById('chat-contact-name').textContent = group.name;
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
-    document.getElementById('messages').style.display = 'flex';
+    document.getElementById('messages').style.display = 'block';
     document.getElementById('app').classList.add('chat-open');
     document.getElementById('chat-encrypted').style.display = 'flex';
     document.getElementById('typing-indicator').style.display = 'none';
@@ -934,7 +934,7 @@
     document.getElementById('chat-contact-name').textContent = contact.name;
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
-    document.getElementById('messages').style.display = 'flex';
+    document.getElementById('messages').style.display = 'block';
     document.getElementById('app').classList.add('chat-open');
     document.getElementById('chat-encrypted').style.display = 'flex';
     document.getElementById('typing-indicator').style.display = 'none';
