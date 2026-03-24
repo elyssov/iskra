@@ -96,6 +96,40 @@ func (b *SimpleBloom) hash(id [32]byte, i uint8) uint64 {
 	return (h1 + uint64(i)*h2) % b.numBits
 }
 
+// CheckInRemote checks if a message ID is in a remote bloom filter (raw bytes from Export).
+// Used during SYNC to avoid sending messages the peer already has.
+func (b *SimpleBloom) CheckInRemote(remoteData []byte, id [32]byte) bool {
+	remoteBits := len(remoteData) * 8
+	if remoteBits == 0 {
+		return false
+	}
+	remoteNumBits := uint64(remoteBits)
+
+	for i := uint8(0); i < b.numHash; i++ {
+		// Same hash function but mod remote size
+		data := make([]byte, 33)
+		copy(data[:32], id[:])
+		data[32] = 0
+		h := sha256.Sum256(data)
+		h1 := binary.BigEndian.Uint64(h[:8])
+
+		data[32] = 1
+		h = sha256.Sum256(data)
+		h2 := binary.BigEndian.Uint64(h[:8])
+
+		pos := (h1 + uint64(i)*h2) % remoteNumBits
+		byteIdx := pos / 8
+		bitIdx := pos % 8
+		if byteIdx >= uint64(len(remoteData)) {
+			return false
+		}
+		if remoteData[byteIdx]&(1<<bitIdx) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // Export returns the raw bit array for sync protocol (HAVE message).
 func (b *SimpleBloom) Export() []byte {
 	b.mu.RLock()

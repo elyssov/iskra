@@ -1,15 +1,50 @@
 package mesh
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/iskra-messenger/iskra/internal/message"
 )
+
+// bloomContains checks if a message ID exists in a remote bloom filter.
+func bloomContains(bloomData []byte, id [32]byte) bool {
+	remoteBits := uint64(len(bloomData) * 8)
+	if remoteBits == 0 {
+		return false
+	}
+	// Use same hash as store.SimpleBloom (double hashing)
+	numHash := uint8(10) // default for our bloom config
+
+	for i := uint8(0); i < numHash; i++ {
+		data := make([]byte, 33)
+		copy(data[:32], id[:])
+		data[32] = 0
+		h := sha256.Sum256(data)
+		h1 := binary.BigEndian.Uint64(h[:8])
+
+		data[32] = 1
+		h = sha256.Sum256(data)
+		h2 := binary.BigEndian.Uint64(h[:8])
+
+		pos := (h1 + uint64(i)*h2) % remoteBits
+		byteIdx := pos / 8
+		bitIdx := pos % 8
+		if byteIdx >= uint64(len(bloomData)) {
+			return false
+		}
+		if bloomData[byteIdx]&(1<<bitIdx) == 0 {
+			return false
+		}
+	}
+	return true
+}
 
 // Protocol command types
 const (
@@ -279,10 +314,17 @@ func (t *Transport) handleConnection(conn net.Conn, peerPub [32]byte, holdMsgs [
 			if _, err := io.ReadFull(conn, bloomData); err != nil {
 				return
 			}
-			// Send messages that the peer doesn't have
-			// For now, send all hold messages (proper bloom check in v0.2)
+			// Send only messages the peer doesn't have (bloom filter check)
+			sent := 0
 			for _, msg := range holdMsgs {
+				if len(bloomData) > 0 && bloomContains(bloomData, msg.ID) {
+					continue // peer already has this
+				}
 				t.sendMsg(conn, msg)
+				sent++
+			}
+			if len(holdMsgs) > 0 {
+				log.Printf("[SYNC] Sent %d/%d messages (bloom filtered)", sent, len(holdMsgs))
 			}
 
 		case CmdMsg:
