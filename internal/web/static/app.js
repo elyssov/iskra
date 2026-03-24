@@ -544,9 +544,10 @@
         return;
       }
 
-      // Don't nag if user already dismissed or installed this version
+      // Don't nag if user already dismissed this exact version+build
       const dismissed = localStorage.getItem('iskra-update-dismissed');
-      if (dismissed === data.version) return;
+      const dismissKey = data.remoteBuild ? data.version + '-b' + data.remoteBuild : data.version;
+      if (dismissed === dismissKey) return;
 
       showUpdateModal(data);
     } catch(e) {
@@ -614,15 +615,16 @@
       if (e.target === modal) modal.style.display = 'none';
     });
 
-    // "Позже" — запомнить и не показывать снова для этой версии
+    // "Позже" — запомнить и не показывать снова для этой версии+билда
+    const dismissKey = data.remoteBuild ? data.version + '-b' + data.remoteBuild : data.version;
     modal.querySelector('#btn-update-later').addEventListener('click', () => {
-      localStorage.setItem('iskra-update-dismissed', data.version);
+      localStorage.setItem('iskra-update-dismissed', dismissKey);
       closeModal('modal-update');
     });
 
     if (targetAsset) {
       modal.querySelector('#btn-do-update').addEventListener('click', () => {
-        localStorage.setItem('iskra-update-dismissed', data.version);
+        localStorage.setItem('iskra-update-dismissed', dismissKey);
         doUpdate(targetAsset, isAndroid, isWindows);
       });
     }

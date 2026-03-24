@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -957,10 +958,11 @@ type updateAsset struct {
 }
 
 type updateCheckResponse struct {
-	Available bool          `json:"available"`
-	Version   string        `json:"version"`
-	Changelog string        `json:"changelog"`
-	Assets    []updateAsset `json:"assets"`
+	Available   bool          `json:"available"`
+	Version     string        `json:"version"`
+	RemoteBuild string        `json:"remoteBuild,omitempty"`
+	Changelog   string        `json:"changelog"`
+	Assets      []updateAsset `json:"assets"`
 }
 
 // HandleCheckUpdate checks GitHub Releases for a newer version.
@@ -1013,9 +1015,26 @@ func (a *API) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 	remoteVer := strings.TrimPrefix(release.TagName, "v")
 	localVer := "0.4.0-alpha"
 
-	// Strict equality check: same version = no update
+	// Extract remote build number from APK asset name (iskra-buildXX.apk)
+	remoteBuild := ""
+	for _, a := range release.Assets {
+		name := strings.ToLower(a.Name)
+		if strings.HasPrefix(name, "iskra-build") && strings.HasSuffix(name, ".apk") {
+			remoteBuild = strings.TrimSuffix(strings.TrimPrefix(name, "iskra-build"), ".apk")
+			break
+		}
+	}
+
+	// Update available if version differs OR remote build number is strictly higher
 	available := remoteVer != localVer
-	log.Printf("[Update] Local=%s (build %s) Remote=%s Available=%v", localVer, BuildNumber, remoteVer, available)
+	if !available && remoteBuild != "" {
+		localF, errL := strconv.ParseFloat(BuildNumber, 64)
+		remoteF, errR := strconv.ParseFloat(remoteBuild, 64)
+		if errL == nil && errR == nil && remoteF > localF {
+			available = true
+		}
+	}
+	log.Printf("[Update] Local=%s (build %s) Remote=%s (build %s) Available=%v", localVer, BuildNumber, remoteVer, remoteBuild, available)
 
 	assets := make([]updateAsset, 0, len(release.Assets))
 	for _, a := range release.Assets {
@@ -1027,10 +1046,11 @@ func (a *API) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := &updateCheckResponse{
-		Available: available,
-		Version:   remoteVer,
-		Changelog: release.Body,
-		Assets:    assets,
+		Available:   available,
+		Version:     remoteVer,
+		RemoteBuild: remoteBuild,
+		Changelog:   release.Body,
+		Assets:      assets,
 	}
 
 	updateCacheMu.Lock()
