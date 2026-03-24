@@ -1356,6 +1356,7 @@
           errEl.style.display = 'block';
         } else {
           localStorage.setItem('iskra-started', '1');
+          document.getElementById('restore-words').value = ''; // clear sensitive data
           alert('Ключ восстановлен! ID: ' + data.userID + '\n\nПерезапустите приложение.');
           closeModal('modal-restore');
         }

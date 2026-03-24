@@ -213,7 +213,7 @@
       <button class="modal-close" onclick="closeModal('modal-add')">&times;</button>
     </div>
     <p class="help-text" data-i18n="modal_add_text">Вставьте визитку друга (начинается с iskra://) или введите данные вручную.</p>
-    <input id="add-invite" data-i18n-placeholder="modal_add_invite_ph" placeholder="Вставьте визитку iskra://..." class="input-large" />
+    <input id="add-invite" data-i18n-placeholder="modal_add_invite_ph" placeholder="Вставьте визитку iskra://..." class="input-large" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
     <div class="divider-text" data-i18n="modal_add_or">или вручную</div>
     <input id="add-name" data-i18n-placeholder="modal_add_name_ph" placeholder="Имя друга" />
     <input id="add-pubkey" data-i18n-placeholder="modal_add_pubkey_ph" placeholder="Публичный ключ" />
@@ -249,7 +249,7 @@
       <button class="modal-close" onclick="closeModal('modal-restore')">&times;</button>
     </div>
     <p class="help-text" data-i18n="modal_restore_text">Введите ваши 24 слова через пробел. После восстановления приложение перезапустится с вашим ключом.</p>
-    <textarea id="restore-words" data-i18n-placeholder="modal_restore_ph" placeholder="слово1 слово2 слово3 ... слово24" rows="4" class="input-large"></textarea>
+    <textarea id="restore-words" data-i18n-placeholder="modal_restore_ph" placeholder="слово1 слово2 слово3 ... слово24" rows="4" class="input-large" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true"></textarea>
     <div id="restore-error" style="color:#e17055;margin:8px 0;display:none"></div>
     <div class="modal-buttons">
       <button class="btn-primary" id="btn-restore-go" data-i18n="btn_restore">Восстановить</button>
