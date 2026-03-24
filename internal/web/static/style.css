@@ -740,6 +740,12 @@ body {
   flex-direction: column;
   background: var(--bg-chat);
   position: relative;
+  min-height: 0; /* prevent flex overflow */
+}
+
+/* Messages area — flex-grows to fill, input stays at bottom */
+#messages {
+  display: none; /* shown when chat is open */
 }
 
 /* --- Chat Header --- */
@@ -805,7 +811,7 @@ body {
 #welcome-screen {
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  height: 100%;
+  flex: 1;
   text-align: center;
   padding: 40px;
   color: var(--text-muted);

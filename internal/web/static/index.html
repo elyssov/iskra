@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
 <title>Искра</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -127,28 +127,27 @@
         <button id="btn-delete-chat" class="chat-action-btn" title="Удалить переписку" style="display:none">&#128465;</button>
       </div>
     </div>
-    <div id="messages">
-      <div id="welcome-screen">
-        <div class="welcome-flame-wrap">
-          <div class="welcome-pulse-ring"></div>
-          <div class="welcome-pulse-ring"></div>
-          <div class="welcome-pulse-ring"></div>
-          <div class="spark-container">
-            <div class="spark"></div><div class="spark"></div><div class="spark"></div>
-            <div class="spark"></div><div class="spark"></div><div class="spark"></div>
-            <div class="spark"></div><div class="spark"></div>
-          </div>
-          <div class="welcome-flame">🔥</div>
+    <div id="welcome-screen">
+      <div class="welcome-flame-wrap">
+        <div class="welcome-pulse-ring"></div>
+        <div class="welcome-pulse-ring"></div>
+        <div class="welcome-pulse-ring"></div>
+        <div class="spark-container">
+          <div class="spark"></div><div class="spark"></div><div class="spark"></div>
+          <div class="spark"></div><div class="spark"></div><div class="spark"></div>
+          <div class="spark"></div><div class="spark"></div>
         </div>
-        <h2 data-i18n="welcome_title">Добро пожаловать в Искру</h2>
-        <p data-i18n="welcome_text">Выберите контакт слева или добавьте нового, чтобы начать общение.</p>
-        <p class="welcome-hint">
-          <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-          <span data-i18n="welcome_encrypted">Сквозное шифрование. Никто не может прочитать ваши сообщения.</span>
-        </p>
-        <p class="welcome-quote" data-i18n="welcome_quote">«Из искры возгорится пламя»</p>
+        <div class="welcome-flame">🔥</div>
       </div>
+      <h2 data-i18n="welcome_title">Добро пожаловать в Искру</h2>
+      <p data-i18n="welcome_text">Выберите контакт слева или добавьте нового, чтобы начать общение.</p>
+      <p class="welcome-hint">
+        <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        <span data-i18n="welcome_encrypted">Сквозное шифрование. Никто не может прочитать ваши сообщения.</span>
+      </p>
+      <p class="welcome-quote" data-i18n="welcome_quote">«Из искры возгорится пламя»</p>
     </div>
+    <div id="messages"></div>
     <button id="scroll-bottom" title="Новые сообщения">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
     </button>

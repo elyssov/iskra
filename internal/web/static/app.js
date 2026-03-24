@@ -763,6 +763,7 @@
     document.getElementById('chat-contact-name').textContent = group.name;
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
+    document.getElementById('messages').style.display = 'flex';
     document.getElementById('app').classList.add('chat-open');
     document.getElementById('chat-encrypted').style.display = 'flex';
     document.getElementById('typing-indicator').style.display = 'none';
@@ -933,6 +934,7 @@
     document.getElementById('chat-contact-name').textContent = contact.name;
     document.getElementById('input-area').style.display = 'flex';
     document.getElementById('welcome-screen').style.display = 'none';
+    document.getElementById('messages').style.display = 'flex';
     document.getElementById('app').classList.add('chat-open');
     document.getElementById('chat-encrypted').style.display = 'flex';
     document.getElementById('typing-indicator').style.display = 'none';
@@ -1102,6 +1104,8 @@
     document.getElementById('btn-back').addEventListener('click', () => {
       document.getElementById('app').classList.remove('chat-open');
       document.getElementById('welcome-screen').style.display = 'flex';
+      document.getElementById('messages').style.display = 'none';
+      document.getElementById('input-area').style.display = 'none';
       document.getElementById('btn-delete-chat').style.display = 'none';
       document.getElementById('btn-rename-contact').style.display = 'none';
       document.getElementById('chat-encrypted').style.display = 'none';
