@@ -11,6 +11,7 @@ const I18N = {
     pin_confirm: 'Повторите PIN-код',
     pin_wrong: 'Неверный PIN',
     pin_mismatch: 'PIN-коды не совпадают',
+    pin_submit: 'Подтвердить',
     pin_remaining: 'Осталось попыток:',
     pin_wiped: 'Данные уничтожены',
 
@@ -161,6 +162,7 @@ const I18N = {
     pin_confirm: 'Confirm PIN code',
     pin_wrong: 'Wrong PIN',
     pin_mismatch: 'PINs do not match',
+    pin_submit: 'Confirm',
     pin_remaining: 'Attempts remaining:',
     pin_wiped: 'Data destroyed',
 
