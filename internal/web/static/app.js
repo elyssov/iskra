@@ -1368,6 +1368,24 @@
 
   // === UNREAD TRACKING ===
   let lastMessages = {}; // key -> last message preview
+  let prevTotalUnread = 0; // for notification sound
+
+  // Notification ping — pure Web Audio, no files needed
+  function playPing() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880; // A5
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch(e) {}
+  }
 
   function getLastRead(key) {
     return parseInt(localStorage.getItem('iskra-lastread-' + key) || '0', 10);
@@ -1402,6 +1420,12 @@
       if (data.lastTs) {
         Object.assign(lastActivity, data.lastTs);
       }
+      // Play ping if new unread messages appeared
+      const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
+      if (totalUnread > prevTotalUnread && prevTotalUnread >= 0) {
+        playPing();
+      }
+      prevTotalUnread = totalUnread;
       renderContacts();
     } catch(e) { /* ignore */ }
   }

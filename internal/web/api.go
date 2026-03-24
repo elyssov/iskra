@@ -22,7 +22,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "13"
+const BuildNumber = "13.1"
 
 // API handles REST API requests.
 type API struct {
