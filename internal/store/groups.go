@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"os"
 	"sort"
 	"sync"
@@ -58,7 +59,9 @@ func NewGroups(path string) (*Groups, error) {
 		messages: make(map[string][]GroupMessage),
 	}
 	if err := g.load(); err != nil && !os.IsNotExist(err) {
-		return nil, err
+		// Corrupted file — backup and start fresh
+		fmt.Printf("[Groups] Load error (starting fresh): %v\n", err)
+		os.Rename(path, path+".corrupt")
 	}
 	return g, nil
 }
