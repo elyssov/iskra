@@ -65,11 +65,15 @@
         pinValue += btn.dataset.num;
         updatePINDots();
 
-        // Auto-submit at 4+ digits when verify mode
-        if (pinMode === 'verify' && pinValue.length >= 4) {
-          setTimeout(() => submitPIN(), 150);
+        // Auto-submit at exactly 4 digits (most common PIN length)
+        if (pinValue.length === 4) {
+          setTimeout(() => submitPIN(), 300);
         }
       });
+    });
+
+    document.getElementById('pin-ok').addEventListener('click', () => {
+      if (pinValue.length >= 4) submitPIN();
     });
 
     document.getElementById('pin-del').addEventListener('click', () => {
@@ -85,8 +89,8 @@
       if (e.key >= '0' && e.key <= '9' && pinValue.length < 6) {
         pinValue += e.key;
         updatePINDots();
-        if (pinMode === 'verify' && pinValue.length >= 4) {
-          setTimeout(() => submitPIN(), 150);
+        if (pinValue.length === 4) {
+          setTimeout(() => submitPIN(), 300);
         }
       } else if (e.key === 'Backspace') {
         pinValue = pinValue.slice(0, -1);

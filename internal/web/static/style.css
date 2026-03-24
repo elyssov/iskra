@@ -196,8 +196,10 @@ body {
   border-color: var(--accent);
   transform: scale(0.92);
 }
-.pin-key-empty {
-  visibility: hidden;
+.pin-key-ok {
+  font-size: 16px;
+  font-weight: 700;
+  color: #4ade80;
 }
 .pin-key-del {
   font-size: 22px;
