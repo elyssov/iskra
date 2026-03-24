@@ -40,13 +40,13 @@
       if (data.locked) {
         if (data.needsSetup) {
           pinMode = 'setup';
-          document.getElementById('pin-subtitle').textContent = 'Установите PIN-код (4-6 цифр)';
+          document.getElementById('pin-subtitle').textContent = t('pin_setup');
         } else {
           pinMode = 'verify';
-          document.getElementById('pin-subtitle').textContent = 'Введите PIN-код';
+          document.getElementById('pin-subtitle').textContent = t('pin_enter');
           if (data.attempts > 0) {
             document.getElementById('pin-attempts').textContent =
-              `Осталось попыток: ${data.maxAttempts - data.attempts}`;
+              `${t('pin_remaining')} ${data.maxAttempts - data.attempts}`;
           }
         }
         document.getElementById('pin-screen').style.display = 'flex';
@@ -112,21 +112,21 @@
       pinMode = 'confirm';
       pinValue = '';
       updatePINDots();
-      document.getElementById('pin-subtitle').textContent = 'Повторите PIN-код';
+      document.getElementById('pin-subtitle').textContent = t('pin_confirm');
       document.getElementById('pin-error').textContent = '';
       return;
     }
 
     if (pinMode === 'confirm') {
       if (pinValue !== pinSetupFirst) {
-        document.getElementById('pin-error').textContent = 'PIN-коды не совпадают';
+        document.getElementById('pin-error').textContent = t('pin_mismatch');
         shakePIN();
         pinMode = 'setup';
         pinSetupFirst = '';
         pinValue = '';
         setTimeout(() => {
           updatePINDots();
-          document.getElementById('pin-subtitle').textContent = 'Установите PIN-код (4-6 цифр)';
+          document.getElementById('pin-subtitle').textContent = t('pin_setup');
         }, 500);
         return;
       }
@@ -221,7 +221,7 @@
 
   function startPanicTimer() {
     panicPressTimer = setTimeout(() => {
-      const code = prompt('Введите код:');
+      const code = prompt(t('panic_prompt'));
       if (code) {
         fetch('/api/panic', {
           method: 'POST',
@@ -245,8 +245,26 @@
     }
   }
 
+  // === LANGUAGE SELECTION ===
+  function setupLanguageScreen() {
+    const langScreen = document.getElementById('lang-screen');
+    langScreen.querySelectorAll('.lang-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        window._lang = btn.dataset.lang;
+        langScreen.style.display = 'none';
+        translatePage();
+        startApp();
+      });
+    });
+  }
+
   // === INIT ===
   async function init() {
+    setupLanguageScreen();
+    // Language screen is visible by default — wait for selection
+  }
+
+  async function startApp() {
     setupPINKeypad();
 
     // Check if PIN required
@@ -296,7 +314,7 @@
     document.getElementById('btn-copy-link').addEventListener('click', () => {
       const link = makeInviteLink(identity);
       navigator.clipboard.writeText(link).then(() => {
-        document.getElementById('btn-copy-link').textContent = 'Скопировано!';
+        document.getElementById('btn-copy-link').textContent = t('btn_copied');
         setTimeout(() => {
           document.getElementById('btn-copy-link').textContent = 'Скопировать визитку для друзей';
         }, 2000);
@@ -333,7 +351,7 @@
         const link = makeInviteLink(data);
         navigator.clipboard.writeText(link).then(() => {
           const el = document.getElementById('my-id');
-          el.textContent = 'Визитка скопирована!';
+          el.textContent = t('btn_copied');
           setTimeout(() => { el.textContent = data.userID; }, 2000);
         });
       };
@@ -368,8 +386,8 @@
     if (!hasContacts && !hasGroups) {
       list.innerHTML = `<div class="contacts-empty">
         <div class="contacts-empty-icon">👋</div>
-        <h3>Пока никого нет</h3>
-        <p>Нажмите <strong>«+ Добавить»</strong> внизу, чтобы добавить первый контакт. Попросите друга прислать вам свою визитку из Искры.</p>
+        <h3>${t('contacts_empty_title')}</h3>
+        <p>${t('contacts_empty_text')}</p>
       </div>`;
       return;
     }
@@ -389,7 +407,7 @@
         const active = currentGroup && currentGroup.id === g.id ? ' active' : '';
         const unread = unreadCounts['g:' + g.id] || 0;
         const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
-        const preview = lastMessages['g:' + g.id] || (g.members ? g.members.length + ' участников' : '');
+        const preview = lastMessages['g:' + g.id] || (g.members ? g.members.length + ' ' + t('contacts_members') : '');
         const timeStr = formatContactTime(lastActivity['g:' + g.id]);
         const timeClass = unread > 0 ? ' has-unread' : '';
         return `<div class="contact-item group-item${active}" data-gid="${g.id}">
@@ -466,19 +484,17 @@
 
       // Relay indicator
       if (data.relay) {
-        parts.push('<span class="status-dot online"></span> relay');
+        parts.push(`<span class="status-dot online"></span> ${t('status_relay')}`);
       } else {
-        parts.push('<span class="status-dot offline"></span> relay');
+        parts.push(`<span class="status-dot offline"></span> ${t('status_relay')}`);
       }
 
-      // LAN peers
       if (data.peers > 0) {
-        parts.push(`${data.peers} рядом`);
+        parts.push(`${data.peers} ${t('status_nearby')}`);
       }
 
-      // Hold
       if (data.holdSize > 0) {
-        parts.push(`${data.holdSize} в трюме`);
+        parts.push(`${data.holdSize} ${t('status_hold')}`);
       }
 
       bar.innerHTML = parts.join(' · ');
@@ -666,17 +682,17 @@
       if (data.count > 0) {
         section.style.display = 'block';
         document.getElementById('online-header').textContent =
-          `В сети сейчас (${data.count}):`;
+          `${t('online_now')} (${data.count}):`;
 
         list.innerHTML = onlinePeers.map((p, i) => {
           // Check if this peer is a known contact
           const known = contacts.find(c => c.user_id === p.userID);
           const displayName = known ? known.name : p.alias;
           const knownClass = known ? ' online-known' : '';
-          const knownBadge = known ? '<span class="online-contact-badge">контакт</span>' : '';
+          const knownBadge = known ? `<span class="online-contact-badge">${t('online_contact')}</span>` : '';
           const subtitle = known
             ? `<span class="online-subtitle">${esc(p.alias)}</span>`
-            : '<span class="online-subtitle">Нажмите чтобы написать</span>';
+            : `<span class="online-subtitle">${t('online_click')}</span>`;
 
           return `<div class="online-item${knownClass}" data-idx="${i}">
             <span class="online-dot"></span>
@@ -757,7 +773,7 @@
     if (groupMsgCache[group.id]) {
       renderGroupMessages(groupMsgCache[group.id]);
     } else {
-      document.getElementById('messages').innerHTML = '<div class="messages-empty">Загрузка...</div>';
+      document.getElementById('messages').innerHTML = `<div class="messages-empty">${t('msg_loading')}</div>`;
     }
 
     markAsRead('g:' + group.id);
@@ -790,7 +806,7 @@
   function renderGroupMessages(msgs) {
     const container = document.getElementById('messages');
     if (!msgs || msgs.length === 0) {
-      container.innerHTML = '<div class="messages-empty">Групповой чат создан. Напишите первое сообщение!</div>';
+      container.innerHTML = `<div class="messages-empty">${t('msg_empty_group')}</div>`;
       return;
     }
     container.innerHTML = msgs.map((m, idx) => {
@@ -929,7 +945,7 @@
     if (msgCache[contact.user_id]) {
       renderMessages(msgCache[contact.user_id]);
     } else {
-      document.getElementById('messages').innerHTML = '<div class="messages-empty">Загрузка...</div>';
+      document.getElementById('messages').innerHTML = `<div class="messages-empty">${t('msg_loading')}</div>`;
     }
 
     // Mark as read
@@ -964,7 +980,7 @@
   function renderMessages(msgs) {
     const container = document.getElementById('messages');
     if (!msgs || msgs.length === 0) {
-      container.innerHTML = '<div class="messages-empty">Начните разговор — напишите первое сообщение</div>';
+      container.innerHTML = `<div class="messages-empty">${t('msg_empty')}</div>`;
       return;
     }
     container.innerHTML = msgs.map(m => {
@@ -1003,9 +1019,9 @@
     yesterday.setDate(yesterday.getDate() - 1);
 
     if (d.toDateString() === now.toDateString()) {
-      return `Сегодня, ${time}`;
+      return `${t('time_today')}, ${time}`;
     } else if (d.toDateString() === yesterday.toDateString()) {
-      return `Вчера, ${time}`;
+      return `${t('time_yesterday')}, ${time}`;
     }
     const date = d.toLocaleDateString('ru-RU', {day:'numeric', month:'long'});
     return `${date}, ${time}`;
@@ -1021,7 +1037,7 @@
     yesterday.setDate(yesterday.getDate() - 1);
 
     if (d.toDateString() === now.toDateString()) return time;
-    if (d.toDateString() === yesterday.toDateString()) return 'Вчера';
+    if (d.toDateString() === yesterday.toDateString()) return t('time_yesterday');
     if (d.getFullYear() === now.getFullYear()) {
       return d.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
     }
@@ -1097,7 +1113,7 @@
     // Delete chat (works for both DM and group)
     document.getElementById('btn-delete-chat').addEventListener('click', async () => {
       if (currentGroup) {
-        if (!confirm(`Удалить группу «${currentGroup.name}»?`)) return;
+        if (!confirm(`${t('delete_group_confirm')} «${currentGroup.name}»?`)) return;
         try {
           await fetch(`/api/groups/delete/${currentGroup.id}`, {method: 'POST'});
           currentGroup = null;
@@ -1106,7 +1122,7 @@
           loadGroups();
         } catch(e) { console.error('Delete group failed:', e); }
       } else if (currentContact) {
-        if (!confirm(`Удалить переписку с ${currentContact.name}?`)) return;
+        if (!confirm(`${t('delete_chat_confirm')} ${currentContact.name}?`)) return;
         try {
           await fetch(`/api/chat/delete/${currentContact.user_id}`, {method: 'POST'});
           loadMessages();
@@ -1117,7 +1133,7 @@
     // Rename contact
     document.getElementById('btn-rename-contact').addEventListener('click', () => {
       if (!currentContact) return;
-      const newName = prompt('Новое имя:', currentContact.name);
+      const newName = prompt(t('rename_prompt'), currentContact.name);
       if (!newName || newName === currentContact.name) return;
       fetch(`/api/contacts/rename/${currentContact.user_id}`, {
         method: 'POST',
@@ -1157,7 +1173,7 @@
       const link = document.getElementById('modal-invite-link').textContent;
       navigator.clipboard.writeText(link).then(() => {
         const btn = document.getElementById('btn-copy-invite');
-        btn.textContent = 'Скопировано!';
+        btn.textContent = t('btn_copied');
         setTimeout(() => { btn.textContent = 'Скопировать визитку'; }, 2000);
       });
     });
@@ -1166,7 +1182,7 @@
     document.getElementById('btn-create-group').addEventListener('click', () => {
       const membersList = document.getElementById('group-members-list');
       if (!contacts || contacts.length === 0) {
-        membersList.innerHTML = '<p style="color:var(--text-light)">Сначала добавьте контакты</p>';
+        membersList.innerHTML = `<p style="color:var(--text-light)">${t('modal_group_no_contacts')}</p>`;
       } else {
         membersList.innerHTML = contacts.map(c =>
           `<label class="group-member-option">

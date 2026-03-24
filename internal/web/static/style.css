@@ -40,6 +40,70 @@ body {
 }
 
 /* ============================
+   LANGUAGE SCREEN
+   ============================ */
+#lang-screen {
+  height: 100vh;
+  height: 100dvh;
+  background: linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #0F172A 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.lang-container { text-align: center; }
+.lang-flame {
+  font-size: 64px;
+  margin-bottom: 8px;
+  filter: drop-shadow(0 0 24px rgba(251,191,36,0.5));
+  animation: flameFloat 3s ease-in-out infinite;
+}
+.lang-title {
+  font-size: 36px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.5px;
+  margin-bottom: 4px;
+}
+.lang-subtitle {
+  font-size: 14px;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 36px;
+}
+.lang-buttons {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
+.lang-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 36px;
+  background: rgba(255,255,255,0.06);
+  border: 2px solid rgba(255,255,255,0.12);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.lang-btn:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: var(--accent);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 32px rgba(59,130,246,0.2);
+}
+.lang-btn:active { transform: scale(0.96); }
+.lang-flag { font-size: 48px; }
+.lang-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+/* ============================
    PIN SCREEN
    ============================ */
 #pin-screen {
