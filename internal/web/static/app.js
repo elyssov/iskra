@@ -1438,7 +1438,27 @@
   }
 
   function markAsRead(key) {
-    localStorage.setItem('iskra-lastread-' + key, Math.floor(Date.now() / 1000).toString());
+    // Use the latest message timestamp from cache instead of current time
+    // This prevents the counter from resetting on re-entry
+    let maxTs = 0;
+    if (key.startsWith('g:')) {
+      const gid = key.substring(2);
+      const msgs = groupMsgCache[gid];
+      if (msgs && msgs.length > 0) {
+        for (const m of msgs) { if (m.timestamp > maxTs) maxTs = m.timestamp; }
+      }
+    } else {
+      const msgs = msgCache[key];
+      if (msgs && msgs.length > 0) {
+        for (const m of msgs) { if (m.timestamp > maxTs) maxTs = m.timestamp; }
+      }
+    }
+    // Fallback to current time only if no messages in cache
+    if (maxTs === 0) maxTs = Math.floor(Date.now() / 1000);
+    const prev = getLastRead(key);
+    if (maxTs > prev) {
+      localStorage.setItem('iskra-lastread-' + key, maxTs.toString());
+    }
     unreadCounts[key] = 0;
     renderContacts();
   }

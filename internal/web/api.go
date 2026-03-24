@@ -186,6 +186,11 @@ func (a *API) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			Outgoing:  true,
 		})
 
+		// Auto-save inbox on send
+		if a.DataDir != "" {
+			a.Inbox.Save(a.DataDir + "/inbox.json")
+		}
+
 		// Add to bloom
 		a.Bloom.Add(msg.ID)
 

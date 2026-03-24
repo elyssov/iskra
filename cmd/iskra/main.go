@@ -70,9 +70,10 @@ func main() {
 		fmt.Println("╚══════════════════════════════════════════╝")
 	}
 
-	// Check if PIN is set — determines if app starts locked
+	// Always start locked — if no PIN exists, user must set one up
 	hasPIN := security.HasPIN(*dataDir)
-	locked := hasPIN
+	locked := true
+	_ = hasPIN
 
 	// Initialize stores (they start without vault key; key set after PIN verify)
 	hold, err := store.NewHold(filepath.Join(*dataDir, "hold"))

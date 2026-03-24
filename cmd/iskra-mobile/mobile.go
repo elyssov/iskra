@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	// gomobile bind requires x/mobile/bind in go.mod
 	_ "golang.org/x/mobile/bind"
@@ -21,9 +22,13 @@ import (
 )
 
 var (
-	server    *web.Server
-	serverMu  sync.Mutex
-	serverPort int
+	server       *web.Server
+	serverMu     sync.Mutex
+	serverPort   int
+	mobileInbox  *store.Inbox
+	mobileGroups *store.Groups
+	mobileDataDir string
+	autoSaveStop chan struct{}
 )
 
 // Start initializes and starts the Iskra node.
@@ -91,7 +96,8 @@ func Start(dataDir string, port int) int {
 	}
 
 	hasPIN := security.HasPIN(dataDir)
-	locked := hasPIN
+	locked := true
+	_ = hasPIN
 	unlockCh := make(chan struct{})
 	if !locked {
 		close(unlockCh)
@@ -150,6 +156,34 @@ func Start(dataDir string, port int) int {
 	}
 
 	serverPort = server.Port()
+
+	// Save references for persistence on Stop
+	mobileInbox = inbox
+	mobileGroups = groups
+	mobileDataDir = dataDir
+
+	// Start auto-save goroutine (every 10 seconds)
+	autoSaveStop = make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				serverMu.Lock()
+				if mobileInbox != nil && mobileDataDir != "" {
+					mobileInbox.Save(filepath.Join(mobileDataDir, "inbox.json"))
+				}
+				if mobileGroups != nil {
+					mobileGroups.Save()
+				}
+				serverMu.Unlock()
+			case <-autoSaveStop:
+				return
+			}
+		}
+	}()
+
 	fmt.Printf("Iskra mobile started on port %d\n", serverPort)
 	return serverPort
 }
@@ -165,11 +199,34 @@ func GetPort() int {
 func Stop() {
 	serverMu.Lock()
 	defer serverMu.Unlock()
+
+	// Stop auto-save
+	if autoSaveStop != nil {
+		select {
+		case <-autoSaveStop:
+		default:
+			close(autoSaveStop)
+		}
+	}
+
+	// Save data before shutdown
+	if mobileInbox != nil && mobileDataDir != "" {
+		mobileInbox.Save(filepath.Join(mobileDataDir, "inbox.json"))
+		log.Println("[Mobile] Inbox saved on stop")
+	}
+	if mobileGroups != nil {
+		mobileGroups.Save()
+		log.Println("[Mobile] Groups saved on stop")
+	}
+
 	if server != nil {
 		server.Stop()
 		server = nil
 		serverPort = 0
 	}
+	mobileInbox = nil
+	mobileGroups = nil
+	mobileDataDir = ""
 }
 
 func loadOrCreateKeypairMobile(dataDir string) (*identity.Keypair, []string) {
