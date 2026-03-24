@@ -95,17 +95,24 @@ class MainActivity : AppCompatActivity() {
             Log.w(TAG, "Wi-Fi Direct init failed: ${e.message}")
         }
 
-        // Start Go core on background thread to avoid ANR
+        // Start Go core on background thread to avoid ANR (with retry)
         Thread {
             try {
                 val dataDir = filesDir.absolutePath
-                val result = Iskramobile.start(dataDir, 0)
-                val startedPort = result.toInt()
+                var startedPort = 0
+                for (attempt in 1..3) {
+                    val result = Iskramobile.start(dataDir, 0)
+                    startedPort = result.toInt()
+                    if (startedPort != 0) break
+                    Log.w(TAG, "Core returned port 0, attempt $attempt/3")
+                    Iskramobile.stop()
+                    Thread.sleep(1000)
+                }
 
                 mainHandler.removeCallbacks(timeoutRunnable)
 
                 if (startedPort == 0) {
-                    runOnUiThread { showError("Ядро вернуло порт 0") }
+                    runOnUiThread { showError("Ядро не запустилось после 3 попыток. Перезапустите приложение.") }
                     return@Thread
                 }
 

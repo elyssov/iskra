@@ -165,6 +165,11 @@ func Start(dataDir string, port int) int {
 	// Start auto-save goroutine (every 10 seconds)
 	autoSaveStop = make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Mobile] Auto-save goroutine panic: %v", r)
+			}
+		}()
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -172,10 +177,14 @@ func Start(dataDir string, port int) int {
 			case <-ticker.C:
 				serverMu.Lock()
 				if mobileInbox != nil && mobileDataDir != "" {
-					mobileInbox.Save(filepath.Join(mobileDataDir, "inbox.json"))
+					if err := mobileInbox.Save(filepath.Join(mobileDataDir, "inbox.json")); err != nil {
+						log.Printf("[Mobile] Auto-save inbox error: %v", err)
+					}
 				}
 				if mobileGroups != nil {
-					mobileGroups.Save()
+					if err := mobileGroups.Save(); err != nil {
+						log.Printf("[Mobile] Auto-save groups error: %v", err)
+					}
 				}
 				serverMu.Unlock()
 			case <-autoSaveStop:

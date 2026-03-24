@@ -142,9 +142,10 @@ const I18N = {
     help_safe_title: 'Это безопасно?',
     help_safe_text: '<strong>Да.</strong> Сообщения шифруются прямо на вашем телефоне. Промежуточные телефоны переносят зашифрованный пакет — они не могут его прочитать. Даже мы, разработчики, не можем прочитать ваши сообщения.',
     help_safe_text2: 'Используется та же криптография, которой доверяют спецслужбы всего мира: <em>XSalsa20-Poly1305 + Ed25519</em>. Открытый код, открытая математика.',
-    help_add_title: 'Как добавить контакт?',
-    help_add_text: 'Нажмите <strong>«+ Добавить»</strong>. Вставьте визитку друга — он может отправить её вам через Telegram, SMS, email, или просто продиктовать. Визитка выглядит так: <code>iskra://...</code>',
-    help_add_text2: 'Свою визитку вы найдёте в разделе <strong>«Ключ»</strong>.',
+    help_add_title: 'Как связаться?',
+    help_add_text: '<strong>Способ 1 — Визитка:</strong><br>Нажмите 🔑 <strong>«Ключ»</strong> внизу слева → <strong>«Скопировать визитку»</strong>. Отправьте её другу любым способом (Telegram, SMS, голосом). Друг нажимает <strong>«+ Добавить»</strong>, вставляет вашу визитку — готово, вы в его контактах. Визитка выглядит так: <code>iskra://...</code>',
+    help_add_text2: '<strong>Способ 2 — Псевдонимы на relay:</strong><br>Когда вы онлайн, справа от шапки видно зелёный значок 🟢 и ваш псевдоним (например, <em>Че Гевара</em>). Другой пользователь видит вас в списке онлайн — просто кликает на ваш псевдоним, и чат открывается автоматически. Не нужны ни визитки, ни ID — просто скажите другу: <em>«Найди меня, я — Роза Люксембург»</em>.',
+    help_add_text3: '<strong>Способ 3 — Добавить по ID:</strong><br>В поле <strong>«+ Добавить»</strong> можно вставить только UserID (короткая строка из букв и цифр). Его видно в разделе «Ключ» → «Технические данные».',
     help_words_title: 'Что такое 24 слова?',
     help_words_text: 'Это ваш «пароль» для восстановления. Если вы потеряете телефон — установите Искру заново и введите эти 24 слова. Все ваши контакты и ключи восстановятся. <strong>Без этих слов восстановление невозможно.</strong>',
     help_checks_title: 'Что означают галочки?',
@@ -296,9 +297,10 @@ const I18N = {
     help_safe_title: 'Is it safe?',
     help_safe_text: '<strong>Yes.</strong> Messages are encrypted right on your phone. Intermediate phones carry the encrypted packet — they cannot read it. Even we, the developers, cannot read your messages.',
     help_safe_text2: 'It uses the same cryptography trusted by intelligence agencies worldwide: <em>XSalsa20-Poly1305 + Ed25519</em>. Open source, open math.',
-    help_add_title: 'How to add a contact?',
-    help_add_text: 'Tap <strong>"+ Add"</strong>. Paste your friend\'s invite link — they can send it via Telegram, SMS, email, or just dictate it. The link looks like: <code>iskra://...</code>',
-    help_add_text2: 'You\'ll find your own invite link in the <strong>"Key"</strong> section.',
+    help_add_title: 'How to connect?',
+    help_add_text: '<strong>Method 1 — Invite link:</strong><br>Tap 🔑 <strong>"Key"</strong> at the bottom left → <strong>"Copy invite"</strong>. Send it to your friend any way you like (Telegram, SMS, voice). They tap <strong>"+ Add"</strong>, paste your link — done, you\'re in their contacts. The link looks like: <code>iskra://...</code>',
+    help_add_text2: '<strong>Method 2 — Relay aliases:</strong><br>When you\'re online, you\'ll see a green dot 🟢 and your alias (e.g., <em>Che Guevara</em>) near the header. Other users see you in the online list — just click your alias and the chat opens automatically. No links or IDs needed — just tell your friend: <em>"Find me, I\'m Rosa Luxemburg"</em>.',
+    help_add_text3: '<strong>Method 3 — Add by ID:</strong><br>In the <strong>"+ Add"</strong> field you can paste just a UserID (short alphanumeric string). Find it in "Key" → "Technical details".',
     help_words_title: 'What are the 24 words?',
     help_words_text: 'This is your "password" for recovery. If you lose your phone — install Iskra again and enter these 24 words. All your contacts and keys will be restored. <strong>Without these words, recovery is impossible.</strong>',
     help_checks_title: 'What do the checkmarks mean?',
@@ -349,12 +351,12 @@ function translatePage() {
       <div class="help-section"><h4>${t('help_what_title')}</h4><p>${t('help_what_text')}</p></div>
       <div class="help-section"><h4>${t('help_how_title')}</h4><p>${t('help_how_text')}</p></div>
       <div class="help-section"><h4>${t('help_safe_title')}</h4><p>${t('help_safe_text')}</p><p>${t('help_safe_text2')}</p></div>
-      <div class="help-section"><h4>${t('help_add_title')}</h4><p>${t('help_add_text')}</p><p>${t('help_add_text2')}</p></div>
+      <div class="help-section"><h4>${t('help_add_title')}</h4><p>${t('help_add_text')}</p><p>${t('help_add_text2')}</p><p>${t('help_add_text3')}</p></div>
       <div class="help-section"><h4>${t('help_words_title')}</h4><p>${t('help_words_text')}</p></div>
       <div class="help-section"><h4>${t('help_checks_title')}</h4><p>${t('help_checks_text')}</p></div>
       <div class="help-section"><h4>${t('help_online_title')}</h4><p>${t('help_online_text')}</p><p>${t('help_online_text2')}</p><p>${t('help_online_text3')}</p></div>
       <div class="help-section"><h4>${t('help_hold_title')}</h4><p>${t('help_hold_text')}</p></div>
-      <div class="help-section help-motto"><p><em>${t('help_motto')}</em></p><p class="help-small">Iskra 0.4.0-alpha</p></div>
+      <div class="help-section help-motto"><p><em>${t('help_motto')}</em></p><p class="help-small">Iskra 0.5.0-alpha</p></div>
     `;
   }
 }

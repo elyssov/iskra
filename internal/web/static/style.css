@@ -32,11 +32,13 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', sans-serif;
-  height: 100vh;
+  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* ============================
@@ -107,8 +109,8 @@ body {
    PIN SCREEN
    ============================ */
 #pin-screen {
-  height: 100vh;
-  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
   background: linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #0F172A 100%);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -119,12 +121,14 @@ body {
   max-width: 300px;
   width: 100%;
   margin: 0 auto;
-  padding: 24px 16px;
-  min-height: 100%;
+  padding: 16px 16px;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
 }
 .pin-flame {
   font-size: 40px;
@@ -228,15 +232,23 @@ body {
   color: rgba(255,255,255,0.35);
 }
 
-/* Extra small screens — squeeze everything to fit */
-@media (max-height: 640px) {
-  .pin-flame { font-size: 32px; margin-bottom: 2px; }
-  .pin-title { font-size: 18px; }
-  .pin-subtitle { font-size: 12px; margin-bottom: 10px; }
-  .pin-dots { gap: 8px; margin-bottom: 6px; }
+/* Small screens — squeeze PIN to fit */
+@media (max-height: 700px) {
+  .pin-flame { font-size: 28px; margin-bottom: 0; }
+  .pin-title { font-size: 17px; margin: 0; }
+  .pin-subtitle { font-size: 12px; margin-bottom: 8px; }
+  .pin-dots { gap: 8px; margin-bottom: 4px; }
   .pin-dot { width: 10px; height: 10px; }
-  .pin-keypad { gap: 6px; max-width: 210px; }
-  .pin-key { width: 56px; height: 56px; font-size: 20px; }
+  .pin-keypad { gap: 4px; max-width: 200px; }
+  .pin-key { width: 52px; height: 48px; font-size: 19px; }
+  .pin-submit-btn { margin: 10px auto 0; padding: 10px 0; font-size: 15px; width: 180px; }
+  .pin-container { padding: 8px 16px; gap: 0; }
+}
+@media (max-height: 560px) {
+  .pin-flame { display: none; }
+  .pin-key { width: 48px; height: 42px; font-size: 17px; }
+  .pin-keypad { gap: 2px; max-width: 180px; }
+  .pin-submit-btn { margin: 6px auto 0; padding: 8px 0; font-size: 14px; }
 }
 
 @keyframes pinShake {
@@ -421,7 +433,9 @@ body {
 #app {
   display: flex;
   height: 100vh;
+  height: 100dvh;
   background: var(--bg);
+  overflow: hidden;
 }
 
 /* ============================
