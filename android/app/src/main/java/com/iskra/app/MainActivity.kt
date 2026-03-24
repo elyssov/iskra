@@ -24,6 +24,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import android.net.wifi.WifiManager
 import iskramobile.Iskramobile
 import java.io.File
 
@@ -32,6 +33,7 @@ class MainActivity : AppCompatActivity() {
     private var webView: WebView? = null
     private var port: Int = 0
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     companion object {
         private const val TAG = "Iskra"
@@ -71,6 +73,18 @@ class MainActivity : AppCompatActivity() {
             }
         }
         mainHandler.postDelayed(timeoutRunnable, START_TIMEOUT_MS)
+
+        // Acquire MulticastLock — required for LAN mesh discovery on Android
+        try {
+            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+            multicastLock = wifiManager.createMulticastLock("iskra-mesh").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            Log.i(TAG, "MulticastLock acquired for LAN mesh")
+        } catch (e: Exception) {
+            Log.w(TAG, "MulticastLock failed: ${e.message}")
+        }
 
         // Start Go core on background thread to avoid ANR
         Thread {
@@ -185,6 +199,9 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         mainHandler.removeCallbacksAndMessages(null)
+        try {
+            multicastLock?.release()
+        } catch (_: Exception) {}
         try {
             Iskramobile.stop()
         } catch (e: Exception) {

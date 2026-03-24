@@ -15,6 +15,7 @@ import (
 	"github.com/iskra-messenger/iskra/internal/identity"
 	"github.com/iskra-messenger/iskra/internal/mesh"
 	"github.com/iskra-messenger/iskra/internal/message"
+	"github.com/iskra-messenger/iskra/internal/security"
 	"github.com/iskra-messenger/iskra/internal/store"
 	"github.com/iskra-messenger/iskra/internal/web"
 )
@@ -82,6 +83,20 @@ func Start(dataDir string, port int) int {
 	relayClient := mesh.NewRelayClient(relayURL, keypair.Ed25519Pub, keypair.X25519Pub)
 	mode := "relay"
 
+	// Get seed for vault key derivation
+	seedData, _ := os.ReadFile(filepath.Join(dataDir, "seed.key"))
+	var seed [32]byte
+	if len(seedData) == 32 {
+		copy(seed[:], seedData)
+	}
+
+	hasPIN := security.HasPIN(dataDir)
+	locked := hasPIN
+	unlockCh := make(chan struct{})
+	if !locked {
+		close(unlockCh)
+	}
+
 	// API
 	api := &web.API{
 		Keypair:     keypair,
@@ -96,6 +111,9 @@ func Start(dataDir string, port int) int {
 		Groups:      groups,
 		Mode:        mode,
 		DataDir:     dataDir,
+		Seed:        seed,
+		Locked:      locked,
+		UnlockCh:    unlockCh,
 	}
 
 	// Message handler
