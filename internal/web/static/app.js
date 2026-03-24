@@ -41,9 +41,11 @@
         if (data.needsSetup) {
           pinMode = 'setup';
           document.getElementById('pin-subtitle').textContent = t('pin_setup');
+          document.getElementById('pin-ok').textContent = t('pin_btn_save');
         } else {
           pinMode = 'verify';
           document.getElementById('pin-subtitle').textContent = t('pin_enter');
+          document.getElementById('pin-ok').textContent = t('pin_btn_login');
           if (data.attempts > 0) {
             document.getElementById('pin-attempts').textContent =
               `${t('pin_remaining')} ${data.maxAttempts - data.attempts}`;
@@ -64,11 +66,6 @@
         if (pinValue.length >= 6) return;
         pinValue += btn.dataset.num;
         updatePINDots();
-
-        // Auto-submit at exactly 4 digits (most common PIN length)
-        if (pinValue.length === 4) {
-          setTimeout(() => submitPIN(), 300);
-        }
       });
     });
 
@@ -89,9 +86,6 @@
       if (e.key >= '0' && e.key <= '9' && pinValue.length < 6) {
         pinValue += e.key;
         updatePINDots();
-        if (pinValue.length === 4) {
-          setTimeout(() => submitPIN(), 300);
-        }
       } else if (e.key === 'Backspace') {
         pinValue = pinValue.slice(0, -1);
         updatePINDots();
@@ -117,6 +111,7 @@
       pinValue = '';
       updatePINDots();
       document.getElementById('pin-subtitle').textContent = t('pin_confirm');
+      document.getElementById('pin-ok').textContent = t('pin_btn_confirm');
       document.getElementById('pin-error').textContent = '';
       return;
     }
@@ -131,6 +126,7 @@
         setTimeout(() => {
           updatePINDots();
           document.getElementById('pin-subtitle').textContent = t('pin_setup');
+          document.getElementById('pin-ok').textContent = t('pin_btn_save');
         }, 500);
         return;
       }
@@ -1144,6 +1140,19 @@
       document.getElementById('typing-indicator').style.display = 'none';
       currentContact = null;
       currentGroup = null;
+    });
+
+    // Change PIN
+    document.getElementById('btn-change-pin').addEventListener('click', () => {
+      pinMode = 'setup';
+      pinValue = '';
+      pinSetupFirst = '';
+      updatePINDots();
+      document.getElementById('pin-subtitle').textContent = t('pin_setup');
+      document.getElementById('pin-ok').textContent = t('pin_btn_save');
+      document.getElementById('pin-error').textContent = '';
+      document.getElementById('pin-attempts').textContent = '';
+      document.getElementById('pin-screen').style.display = 'flex';
     });
 
     // Delete chat (works for both DM and group)
