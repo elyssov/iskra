@@ -186,11 +186,11 @@ body {
    ONBOARDING
    ============================ */
 #onboarding {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 40%, #E0E7FF 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 20px;
 }
 
@@ -199,11 +199,13 @@ body {
   width: 100%;
   text-align: center;
   color: var(--text);
+  margin: 0 auto;
+  padding-bottom: 40px;
 }
 
 .onboarding-flame {
-  font-size: 64px;
-  margin-bottom: 8px;
+  font-size: 48px;
+  margin-bottom: 4px;
   animation: flicker 2s ease-in-out infinite alternate;
   filter: drop-shadow(0 0 20px rgba(251,191,36,0.4));
 }
