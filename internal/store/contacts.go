@@ -33,7 +33,10 @@ type Contacts struct {
 func NewContacts(path string) (*Contacts, error) {
 	c := &Contacts{path: path}
 	if err := c.load(); err != nil && !os.IsNotExist(err) {
-		return nil, err
+		// Corrupted file — backup and start fresh
+		fmt.Printf("[Contacts] Load error (starting fresh): %v\n", err)
+		os.Rename(path, path+".corrupt")
+		c.contacts = nil
 	}
 	return c, nil
 }

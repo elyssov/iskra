@@ -75,12 +75,11 @@ func Start(dataDir string, port int) int {
 		return 0
 	}
 
-	// Initialize mesh
+	// Initialize mesh (non-fatal — can work relay-only)
 	peers := mesh.NewPeerList()
 	transport := mesh.NewTransport(keypair.Ed25519Pub, 0, peers)
 	if err := transport.Start(); err != nil {
-		log.Printf("Failed to start transport: %v", err)
-		return 0
+		log.Printf("[Mobile] Mesh transport failed (relay-only mode): %v", err)
 	}
 
 	// Relay — always connect to default

@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"sort"
 	"sync"
@@ -135,5 +136,12 @@ func (in *Inbox) Load(path string) error {
 			data = decrypted
 		}
 	}
-	return json.Unmarshal(data, &in.messages)
+	if err := json.Unmarshal(data, &in.messages); err != nil {
+		// Corrupted file — backup and start with empty inbox
+		fmt.Printf("[Inbox] Load error (starting fresh): %v\n", err)
+		os.Rename(path, path+".corrupt")
+		in.messages = make(map[string][]InboxMessage)
+		return nil
+	}
+	return nil
 }
