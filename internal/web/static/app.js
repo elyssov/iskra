@@ -501,7 +501,11 @@
         banner.style.display = 'none';
         return;
       }
-      // Show update dialog immediately on startup
+
+      // Don't nag if user already dismissed or installed this version
+      const dismissed = localStorage.getItem('iskra-update-dismissed');
+      if (dismissed === data.version) return;
+
       showUpdateModal(data);
     } catch(e) {
       console.error('Update check failed:', e);
@@ -560,7 +564,7 @@
             ? `<button class="btn-primary btn-large" id="btn-do-update">Обновить сейчас</button>`
             : `<p style="color:var(--text-muted)">Файл для вашей платформы не найден</p>`
           }
-          <button class="btn-secondary" onclick="closeModal('modal-update')">Позже</button>
+          <button class="btn-secondary" id="btn-update-later">Позже</button>
         </div>
       </div>`;
     document.body.appendChild(modal);
@@ -568,8 +572,15 @@
       if (e.target === modal) modal.style.display = 'none';
     });
 
+    // "Позже" — запомнить и не показывать снова для этой версии
+    modal.querySelector('#btn-update-later').addEventListener('click', () => {
+      localStorage.setItem('iskra-update-dismissed', data.version);
+      closeModal('modal-update');
+    });
+
     if (targetAsset) {
       modal.querySelector('#btn-do-update').addEventListener('click', () => {
+        localStorage.setItem('iskra-update-dismissed', data.version);
         doUpdate(targetAsset, isAndroid, isWindows);
       });
     }
