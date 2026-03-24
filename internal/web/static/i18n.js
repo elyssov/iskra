@@ -346,7 +346,7 @@ function translatePage() {
       <div class="help-section"><h4>${t('help_checks_title')}</h4><p>${t('help_checks_text')}</p></div>
       <div class="help-section"><h4>${t('help_online_title')}</h4><p>${t('help_online_text')}</p><p>${t('help_online_text2')}</p><p>${t('help_online_text3')}</p></div>
       <div class="help-section"><h4>${t('help_hold_title')}</h4><p>${t('help_hold_text')}</p></div>
-      <div class="help-section help-motto"><p><em>${t('help_motto')}</em></p><p class="help-small">Iskra 0.3.1-alpha</p></div>
+      <div class="help-section help-motto"><p><em>${t('help_motto')}</em></p><p class="help-small">Iskra 0.4.0-alpha</p></div>
     `;
   }
 }
