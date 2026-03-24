@@ -34,6 +34,7 @@ class MainActivity : AppCompatActivity() {
     private var port: Int = 0
     private val mainHandler = Handler(Looper.getMainLooper())
     private var multicastLock: WifiManager.MulticastLock? = null
+    private var wifiDirectManager: WifiDirectManager? = null
 
     companion object {
         private const val TAG = "Iskra"
@@ -84,6 +85,14 @@ class MainActivity : AppCompatActivity() {
             Log.i(TAG, "MulticastLock acquired for LAN mesh")
         } catch (e: Exception) {
             Log.w(TAG, "MulticastLock failed: ${e.message}")
+        }
+
+        // Initialize Wi-Fi Direct for mesh wave protocol
+        try {
+            wifiDirectManager = WifiDirectManager(this).apply { initialize() }
+            Log.i(TAG, "Wi-Fi Direct manager initialized for mesh")
+        } catch (e: Exception) {
+            Log.w(TAG, "Wi-Fi Direct init failed: ${e.message}")
         }
 
         // Start Go core on background thread to avoid ANR
@@ -201,6 +210,9 @@ class MainActivity : AppCompatActivity() {
         mainHandler.removeCallbacksAndMessages(null)
         try {
             multicastLock?.release()
+        } catch (_: Exception) {}
+        try {
+            wifiDirectManager?.destroy()
         } catch (_: Exception) {}
         try {
             Iskramobile.stop()
