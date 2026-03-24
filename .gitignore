@@ -3,3 +3,4 @@ dist/
 *.apk
 .iskra/
 iskra-project.tar.gz
+android/app/iskra-release.jks

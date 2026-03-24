@@ -15,9 +15,22 @@ android {
         versionName = "0.4.0-alpha"
     }
 
+    signingConfigs {
+        create("release") {
+            val ksFile = file("iskra-release.jks")
+            if (ksFile.exists()) {
+                storeFile = ksFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "iskra2026"
+                keyAlias = System.getenv("KEY_ALIAS") ?: "iskra"
+                keyPassword = System.getenv("KEY_PASSWORD") ?: "iskra2026"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
