@@ -1004,12 +1004,13 @@ func (a *API) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Compare versions: strip leading 'v' and compare as strings
+	// Compare: if remote tag differs from local version, update is available
 	remoteVer := strings.TrimPrefix(release.TagName, "v")
 	localVer := "0.2.0-alpha"
 
-	available := remoteVer != localVer && remoteVer > localVer
-	log.Printf("[Update] Local=%s Remote=%s Available=%v", localVer, remoteVer, available)
+	// Strict equality check: same version = no update
+	available := remoteVer != localVer
+	log.Printf("[Update] Local=%s (build %s) Remote=%s Available=%v", localVer, BuildNumber, remoteVer, available)
 
 	assets := make([]updateAsset, 0, len(release.Assets))
 	for _, a := range release.Assets {
