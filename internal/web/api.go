@@ -22,7 +22,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "11.1"
+const BuildNumber = "13"
 
 // API handles REST API requests.
 type API struct {
@@ -240,7 +240,7 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		Peers:    a.Peers.Count(),
 		Relay:    relayConnected,
 		HoldSize: a.Hold.Count(),
-		Version:  "0.2.0-alpha",
+		Version:  "0.3.0-alpha",
 		Build:    BuildNumber,
 	}
 	writeJSON(w, resp)
@@ -1006,7 +1006,7 @@ func (a *API) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// Compare: if remote tag differs from local version, update is available
 	remoteVer := strings.TrimPrefix(release.TagName, "v")
-	localVer := "0.2.0-alpha"
+	localVer := "0.3.0-alpha"
 
 	// Strict equality check: same version = no update
 	available := remoteVer != localVer
