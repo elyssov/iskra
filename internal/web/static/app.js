@@ -254,21 +254,26 @@
 
   function showMasterLogin() {
     const login = prompt('Login:');
-    if (!login) return;
+    if (!login) { document.getElementById('pin-screen').style.display = 'flex'; return; }
     const password = prompt('Password:');
-    if (!password) return;
+    if (!password) { document.getElementById('pin-screen').style.display = 'flex'; return; }
     fetch('/api/master/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({login, password})
     }).then(r => r.json()).then(data => {
       if (data.ok) {
-        alert('Master mode active. ID: ' + data.userID);
-        location.reload();
+        localStorage.setItem('iskra-started', '1');
+        showApp();
+        proceedAfterPIN();
       } else {
         alert('Access denied');
+        document.getElementById('pin-screen').style.display = 'flex';
       }
-    }).catch(() => alert('Error'));
+    }).catch(() => {
+      alert('Error');
+      document.getElementById('pin-screen').style.display = 'flex';
+    });
   }
 
   function setupPanicMode() {
