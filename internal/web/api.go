@@ -23,7 +23,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "16.1"
+const BuildNumber = "16.2"
 
 // API handles REST API requests.
 type API struct {
@@ -1330,6 +1330,44 @@ func (a *API) HandlePanic(w http.ResponseWriter, r *http.Request) {
 	log.Println("[PANIC] Wipe complete, decoy generated")
 
 	writeJSON(w, map[string]interface{}{"ok": true, "wiped": true})
+}
+
+// ─── Mesh peer injection (WiFi Direct → TCP sync) ──────────────────
+
+// HandleAddPeer accepts a peer IP from WiFi Direct discovery and triggers TCP sync.
+func (a *API) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		IP   string `json:"ip"`
+		Port int    `json:"port,omitempty"`
+	}
+	if err := readJSON(r, &req); err != nil || req.IP == "" {
+		http.Error(w, "ip required", 400)
+		return
+	}
+
+	// Default mesh port = our own transport port
+	port := req.Port
+	if port == 0 && a.Transport != nil {
+		port = int(a.Transport.Port())
+	}
+	if port == 0 {
+		port = 4243 // fallback
+	}
+
+	log.Printf("[Mesh] WiFi Direct peer: %s:%d — initiating sync", req.IP, port)
+
+	go func() {
+		holdMsgs, _ := a.Hold.GetAll()
+		if a.Transport != nil {
+			a.Transport.ConnectAndSync(req.IP, uint16(port), a.Bloom.Export(), holdMsgs)
+		}
+	}()
+
+	writeJSON(w, map[string]interface{}{"ok": true, "ip": req.IP, "port": port})
 }
 
 // ─── Channels (broadcast one-to-many) ───────────────────────────────

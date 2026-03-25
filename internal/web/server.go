@@ -49,6 +49,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/unread", s.api.HandleUnread)
 	mux.HandleFunc("/api/update/check", s.api.HandleCheckUpdate)
 	mux.HandleFunc("/api/update/download", s.api.HandleUpdateDownload)
+	mux.HandleFunc("/api/mesh/add-peer", s.api.HandleAddPeer)
 	mux.HandleFunc("/api/channels", s.api.HandleListChannels)
 	mux.HandleFunc("/api/channels/create", s.api.HandleCreateChannel)
 	mux.HandleFunc("/api/channels/posts/", s.api.HandleChannelPosts)

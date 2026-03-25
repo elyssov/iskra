@@ -161,6 +161,9 @@ class MainActivity : AppCompatActivity() {
             Log.e(TAG, "Failed to start foreground service", e)
         }
 
+        // Start WiFi Direct mesh loop (advertise + discover + connect)
+        wifiDirectManager?.startMeshLoop(port)
+
         // Setup WebView and replace splash
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
