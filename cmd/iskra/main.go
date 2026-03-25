@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/iskra-messenger/iskra/internal/firewall"
 	"github.com/iskra-messenger/iskra/internal/identity"
@@ -193,7 +194,7 @@ func main() {
 			log.Printf("Discovered peer: %s:%d", ip, peerPort)
 		}
 		go func() {
-			holdMsgs, _ := hold.GetAll()
+			holdMsgs, _ := hold.GetForSync()
 			transport.ConnectAndSync(ip, peerPort, bloom.Export(), holdMsgs)
 		}()
 	})
@@ -222,6 +223,15 @@ func main() {
 		fmt.Printf("   🔒 PIN: требуется ввод\n")
 	}
 	fmt.Println()
+
+	// Periodic hold cleanup (morgue + kill switch)
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			hold.Cleanup()
+		}
+	}()
 
 	// Auto-open browser
 	openBrowser(uiURL)
