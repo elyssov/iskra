@@ -174,7 +174,13 @@ func main() {
 	transport.SetOnMessage(handleMessage)
 	if relayClient != nil {
 		relayClient.SetOnMessage(handleMessage)
+		var lastSync time.Time
 		relayClient.SetOnSyncRequest(func() {
+			// Cooldown: don't sync more than once per 30 seconds
+			if time.Since(lastSync) < 30*time.Second {
+				return
+			}
+			lastSync = time.Now()
 			// New peer came online — broadcast our hold via relay
 			msgs, _ := hold.GetForSync()
 			for _, msg := range msgs {
