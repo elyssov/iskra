@@ -148,7 +148,7 @@ func Start(dataDir string, port int) int {
 	discovery := mesh.NewDiscovery(keypair.Ed25519Pub, transport.Port(), peers)
 	discovery.SetOnPeer(func(pubKey [32]byte, ip string, peerPort uint16) {
 		go func() {
-			holdMsgs, _ := hold.GetAll()
+			holdMsgs, _ := hold.GetForSync()
 			transport.ConnectAndSync(ip, peerPort, bloom.Export(), holdMsgs)
 		}()
 	})

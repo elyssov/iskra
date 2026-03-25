@@ -1420,7 +1420,7 @@ func (a *API) HandleAddPeer(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Mesh] WiFi Direct peer: %s:%d — initiating sync", req.IP, port)
 
 	go func() {
-		holdMsgs, _ := a.Hold.GetAll()
+		holdMsgs, _ := a.Hold.GetForSync()
 		if a.Transport != nil {
 			a.Transport.ConnectAndSync(req.IP, uint16(port), a.Bloom.Export(), holdMsgs)
 		}
