@@ -23,7 +23,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "18.2"
+const BuildNumber = "18.3"
 
 // API handles REST API requests.
 type API struct {
@@ -916,10 +916,19 @@ func (a *API) HandleUnread(w http.ResponseWriter, r *http.Request) {
 	lastMsg := make(map[string]string)
 	lastTs := make(map[string]int64) // last message timestamp for sorting
 
-	// Contacts
+	// All inbox keys (contacts + anyone who messaged us)
+	checkedKeys := make(map[string]bool)
 	for _, c := range a.Contacts.List() {
-		msgs := a.Inbox.GetMessages(c.UserID)
-		lr := req.LastRead[c.UserID]
+		checkedKeys[c.UserID] = true
+	}
+	// Also check inbox keys not in contacts (new senders)
+	for _, k := range a.Inbox.Keys() {
+		checkedKeys[k] = true
+	}
+
+	for uid := range checkedKeys {
+		msgs := a.Inbox.GetMessages(uid)
+		lr := req.LastRead[uid]
 		unread := 0
 		last := ""
 		var maxTs int64
@@ -933,16 +942,16 @@ func (a *API) HandleUnread(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if unread > 0 {
-			counts[c.UserID] = unread
+			counts[uid] = unread
 		}
 		if last != "" {
 			if len(last) > 40 {
 				last = last[:40] + "..."
 			}
-			lastMsg[c.UserID] = last
+			lastMsg[uid] = last
 		}
 		if maxTs > 0 {
-			lastTs[c.UserID] = maxTs
+			lastTs[uid] = maxTs
 		}
 	}
 
