@@ -24,8 +24,9 @@ type RelayClient struct {
 	pubKey     [32]byte
 	x25519Pub  [32]byte
 	conn       *websocket.Conn
-	onMessage  func(*message.Message)
-	mu         sync.Mutex
+	onMessage     func(*message.Message)
+	onSyncRequest func()
+	mu            sync.Mutex
 	stop       chan struct{}
 	connected  bool
 }
@@ -60,6 +61,11 @@ func (rc *RelayClient) HTTPBaseURL() string {
 // SetOnMessage sets the callback for messages received via relay.
 func (rc *RelayClient) SetOnMessage(fn func(*message.Message)) {
 	rc.onMessage = fn
+}
+
+// SetOnSyncRequest sets callback when relay says a new peer needs hold sync.
+func (rc *RelayClient) SetOnSyncRequest(fn func()) {
+	rc.onSyncRequest = fn
 }
 
 // Start connects to the relay and begins reading messages.
@@ -112,9 +118,21 @@ func (rc *RelayClient) SendMessage(msg *message.Message) error {
 	return rc.conn.WriteMessage(websocket.BinaryMessage, frame)
 }
 
-// BroadcastMessage sends a message to all — for relay, send with zero recipient.
+// BroadcastMessage sends a message to ALL online peers via relay (zero recipient).
 func (rc *RelayClient) BroadcastMessage(msg *message.Message) error {
-	return rc.SendMessage(msg)
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
+	if rc.conn == nil {
+		return fmt.Errorf("relay not connected")
+	}
+
+	serialized := msg.Serialize()
+	frame := make([]byte, 20+len(serialized))
+	// First 20 bytes = all zeros = broadcast to all
+	copy(frame[20:], serialized)
+
+	return rc.conn.WriteMessage(websocket.BinaryMessage, frame)
 }
 
 // wakeUp sends an HTTP GET to the relay to wake it from Render's sleep.
@@ -227,6 +245,16 @@ func (rc *RelayClient) readLoop() {
 		}
 
 		msgData := data[20:]
+
+		// Check for NEWSYNC notification from relay
+		if len(msgData) == 7 && string(msgData) == "NEWSYNC" {
+			log.Printf("[Relay] New peer notification — syncing holds")
+			if rc.onSyncRequest != nil {
+				go rc.onSyncRequest()
+			}
+			continue
+		}
+
 		msg, err := message.Deserialize(msgData)
 		if err != nil {
 			continue

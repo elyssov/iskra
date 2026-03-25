@@ -23,7 +23,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "17.2"
+const BuildNumber = "18"
 
 // API handles REST API requests.
 type API struct {
@@ -40,10 +40,19 @@ type API struct {
 	Channels    *store.Channels
 	Mode        string // "lan", "relay", "offline"
 	DataDir     string // For restore functionality
+	InboxPath   string // Dynamic path to inbox file (per-identity)
 	Seed        [32]byte
 	Locked      bool     // true if PIN required and not yet verified
 	VaultKey    *[32]byte
 	UnlockCh    chan struct{} // closed when PIN verified / setup complete
+}
+
+// InboxFilePath returns the per-identity inbox file path.
+func (a *API) InboxFilePath() string {
+	if a.InboxPath != "" {
+		return a.InboxPath
+	}
+	return filepath.Join(a.DataDir, "inbox.json")
 }
 
 type identityResponse struct {
@@ -190,7 +199,7 @@ func (a *API) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 		// Auto-save inbox on send
 		if a.DataDir != "" {
-			a.Inbox.Save(a.DataDir + "/inbox.json")
+			a.Inbox.Save(a.InboxFilePath())
 		}
 
 		// Add to bloom
@@ -341,7 +350,7 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 
 			// Auto-save inbox on receive
 			if a.DataDir != "" {
-				a.Inbox.Save(a.DataDir + "/inbox.json")
+				a.Inbox.Save(a.InboxFilePath())
 			}
 
 			// Send delivery confirmation back to sender
@@ -1208,6 +1217,10 @@ func (a *API) HandlePINSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set per-identity inbox path
+	userID := identity.UserID(a.Keypair.Ed25519Pub)
+	a.InboxPath = filepath.Join(a.DataDir, "inbox-"+userID+".json")
+
 	// Derive storage key and unlock
 	key := security.DeriveStorageKey(a.Seed, req.PIN)
 	a.VaultKey = &key
@@ -1276,6 +1289,10 @@ func (a *API) HandlePINVerify(w http.ResponseWriter, r *http.Request) {
 
 	security.ResetAttempts(a.DataDir)
 
+	// Set per-identity inbox path
+	userID := identity.UserID(a.Keypair.Ed25519Pub)
+	a.InboxPath = filepath.Join(a.DataDir, "inbox-"+userID+".json")
+
 	// Derive storage key and set on stores
 	key := security.DeriveStorageKey(a.Seed, req.PIN)
 	a.VaultKey = &key
@@ -1285,7 +1302,7 @@ func (a *API) HandlePINVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Inbox != nil {
 		a.Inbox.VaultKey = &key
-		a.Inbox.Load(filepath.Join(a.DataDir, "inbox.json"))
+		a.Inbox.Load(a.InboxFilePath())
 	}
 	if a.Groups != nil {
 		a.Groups.SetVaultKey(&key)
@@ -1363,6 +1380,10 @@ func (a *API) HandleMasterLogin(w http.ResponseWriter, r *http.Request) {
 	// Save seed for this session
 	copy(a.Seed[:], seed[:])
 
+	// Switch inbox to master-specific file
+	masterUID := identity.UserID(kp.Ed25519Pub)
+	a.InboxPath = filepath.Join(a.DataDir, "inbox-"+masterUID+".json")
+
 	// Master operates without vault encryption — clear VaultKey and reload stores
 	a.VaultKey = nil
 	if a.Contacts != nil {
@@ -1370,7 +1391,7 @@ func (a *API) HandleMasterLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Inbox != nil {
 		a.Inbox.VaultKey = nil
-		a.Inbox.Load(filepath.Join(a.DataDir, "inbox.json"))
+		a.Inbox.Load(a.InboxFilePath())
 	}
 	if a.Groups != nil {
 		a.Groups.VaultKey = nil

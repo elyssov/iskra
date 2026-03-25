@@ -188,6 +188,19 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		conn.WriteMessage(websocket.BinaryMessage, msg)
 	}
 
+	// Notify all existing peers: "new peer arrived — sync your holds!"
+	// Send special frame: sender=new_peer's edPub prefix, payload="NEWSYNC"
+	syncNotify := make([]byte, 20+7)
+	copy(syncNotify[:20], edPub[:20])
+	copy(syncNotify[20:], []byte("NEWSYNC"))
+	r.mu.RLock()
+	for uid, ci := range r.clients {
+		if uid != userID {
+			ci.conn.WriteMessage(websocket.BinaryMessage, syncNotify)
+		}
+	}
+	r.mu.RUnlock()
+
 	// Server-side ping — detect dead connections proactively
 	pingDone := make(chan struct{})
 	go func() {
@@ -225,18 +238,41 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		copy(frame[:20], edPub[:20])
 		copy(frame[20:], msgData)
 
-		r.mu.RLock()
-		targetCI, online := r.clients[recipID]
-		r.mu.RUnlock()
-
-		if online {
-			targetCI.conn.WriteMessage(websocket.BinaryMessage, frame)
-		} else {
-			r.mu.Lock()
-			if len(r.pending[recipID]) < 1000 {
-				r.pending[recipID] = append(r.pending[recipID], frame)
+		// Check if broadcast (all-zero recipientID)
+		isBroadcast := true
+		for _, b := range data[:20] {
+			if b != 0 {
+				isBroadcast = false
+				break
 			}
-			r.mu.Unlock()
+		}
+
+		if isBroadcast {
+			// Broadcast to ALL online peers (except sender) — store-and-forward
+			r.mu.RLock()
+			for uid, ci := range r.clients {
+				if uid != userID {
+					ci.conn.WriteMessage(websocket.BinaryMessage, frame)
+				}
+			}
+			r.mu.RUnlock()
+		} else {
+			r.mu.RLock()
+			targetCI, online := r.clients[recipID]
+			r.mu.RUnlock()
+
+			if online {
+				targetCI.conn.WriteMessage(websocket.BinaryMessage, frame)
+			} else {
+				// Recipient offline — broadcast to all (store in their holds)
+				r.mu.RLock()
+				for uid, ci := range r.clients {
+					if uid != userID {
+						ci.conn.WriteMessage(websocket.BinaryMessage, frame)
+					}
+				}
+				r.mu.RUnlock()
+			}
 		}
 	}
 

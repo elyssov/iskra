@@ -174,6 +174,16 @@ func main() {
 	transport.SetOnMessage(handleMessage)
 	if relayClient != nil {
 		relayClient.SetOnMessage(handleMessage)
+		relayClient.SetOnSyncRequest(func() {
+			// New peer came online — broadcast our hold via relay
+			msgs, _ := hold.GetForSync()
+			for _, msg := range msgs {
+				relayClient.BroadcastMessage(msg)
+			}
+			if len(msgs) > 0 {
+				log.Printf("[Sync] Broadcast %d hold messages to new peer via relay", len(msgs))
+			}
+		})
 		if err := relayClient.Start(); err != nil {
 			log.Printf("Relay: will retry in background")
 		}
@@ -242,7 +252,7 @@ func main() {
 	<-sigChan
 
 	fmt.Println("\nОстановка...")
-	inbox.Save(filepath.Join(*dataDir, "inbox.json"))
+	inbox.Save(api.InboxFilePath())
 	groups.Save()
 	channels.Save()
 	discovery.Stop()
