@@ -145,18 +145,19 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 	}
 	defer conn.Close()
 
-	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetReadDeadline(time.Now().Add(45 * time.Second))
 	conn.SetPongHandler(func(string) error {
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(45 * time.Second))
 		return nil
 	})
 	conn.SetPingHandler(func(msg string) error {
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(45 * time.Second))
 		conn.WriteControl(websocket.PongMessage, []byte(msg), time.Now().Add(5*time.Second))
 		return nil
 	})
 
 	// First message: client sends both pubkeys (64 bytes: ed25519 + x25519)
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second)) // short deadline for handshake
 	_, pubkeyMsg, err := conn.ReadMessage()
 	if err != nil || (len(pubkeyMsg) != 32 && len(pubkeyMsg) != 64) {
 		return
@@ -187,9 +188,27 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		conn.WriteMessage(websocket.BinaryMessage, msg)
 	}
 
+	// Server-side ping — detect dead connections proactively
+	pingDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
+					conn.Close()
+					return
+				}
+			case <-pingDone:
+				return
+			}
+		}
+	}()
+
 	// Read loop
 	for {
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetReadDeadline(time.Now().Add(45 * time.Second))
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			break
@@ -221,7 +240,8 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// Unregister — alias удаляется, при следующем входе будет новая
+	// Stop ping goroutine and unregister
+	close(pingDone)
 	r.mu.Lock()
 	if ci, ok := r.clients[userID]; ok && ci.conn == conn {
 		delete(r.clients, userID)
