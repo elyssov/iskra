@@ -5,73 +5,72 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pInfo
 import android.net.wifi.p2p.WifiP2pManager
+import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceInfo
+import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceRequest
 import android.os.Looper
 import android.util.Log
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Manages Wi-Fi Direct for Iskra mesh wave protocol.
+ * WiFi Direct mesh manager for Iskra.
  *
- * This class handles:
- * - Peer discovery (finding other Iskra devices)
- * - P2P connection (one becomes Group Owner, other is client)
- * - Bidirectional sync via TCP over the P2P link
- * - Disconnect after sync
- *
- * Called from Go via gomobile JNI bridge.
+ * Each device simultaneously:
+ * 1. ADVERTISES itself via DNS-SD service ("_iskra._tcp")
+ * 2. DISCOVERS other Iskra devices nearby
+ * 3. CONNECTS to found peers (first come first served)
+ * 4. Tells Go backend the peer IP via HTTP POST
+ * 5. Go handles TCP mesh sync as usual
  */
 @SuppressLint("MissingPermission")
 class WifiDirectManager(private val context: Context) {
 
     companion object {
-        private const val TAG = "IskraWifiDirect"
-        private const val ISKRA_SERVICE_NAME = "iskra"
+        private const val TAG = "IskraP2P"
+        private const val SERVICE_TYPE = "_iskra._tcp"
+        private const val SERVICE_NAME = "iskra_mesh"
+        private const val SCAN_INTERVAL_MS = 20_000L // 20 seconds
+        private const val CONNECT_TIMEOUT_SEC = 12L
     }
 
     private var manager: WifiP2pManager? = null
     private var channel: WifiP2pManager.Channel? = null
-    private val discoveredPeers = mutableListOf<WifiP2pDevice>()
-    private var connectionInfo: WifiP2pInfo? = null
-    private var isInitialized = false
+    private var goPort: Int = 0
+    private val running = AtomicBoolean(false)
+    private val connectedPeers = mutableSetOf<String>() // MAC addresses we already synced
+    private val discoveredDevices = mutableMapOf<String, String>() // MAC -> device name
 
-    private var discoveryLatch: CountDownLatch? = null
+    private var connectionInfo: WifiP2pInfo? = null
     private var connectionLatch: CountDownLatch? = null
 
     private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
+        override fun onReceive(ctx: Context?, intent: Intent?) {
             when (intent?.action) {
-                WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION -> {
-                    // Peers list updated
-                    manager?.requestPeers(channel) { peerList ->
-                        discoveredPeers.clear()
-                        discoveredPeers.addAll(peerList.deviceList)
-                        Log.i(TAG, "Discovered ${discoveredPeers.size} peers")
-                        discoveryLatch?.countDown()
-                    }
-                }
                 WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION -> {
-                    // Connection state changed
                     manager?.requestConnectionInfo(channel) { info ->
                         connectionInfo = info
                         if (info?.groupFormed == true) {
-                            Log.i(TAG, "P2P connected: isOwner=${info.isGroupOwner}, host=${info.groupOwnerAddress?.hostAddress}")
+                            Log.i(TAG, "P2P group formed: owner=${info.isGroupOwner}, host=${info.groupOwnerAddress?.hostAddress}")
                             connectionLatch?.countDown()
                         }
                     }
+                }
+                WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION -> {
+                    val device = intent.getParcelableExtra<WifiP2pDevice>(WifiP2pManager.EXTRA_WIFI_P2P_DEVICE)
+                    Log.i(TAG, "This device: ${device?.deviceName} (${device?.status})")
                 }
             }
         }
     }
 
     fun initialize() {
-        if (isInitialized) return
-
         manager = context.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
         channel = manager?.initialize(context, Looper.getMainLooper(), null)
 
@@ -82,56 +81,138 @@ class WifiDirectManager(private val context: Context) {
             addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
         }
         context.registerReceiver(receiver, filter)
-        isInitialized = true
-        Log.i(TAG, "Wi-Fi Direct initialized")
+        Log.i(TAG, "WiFi Direct initialized")
     }
 
     /**
-     * Check if device is connected to an infrastructure Wi-Fi network.
+     * Start the mesh loop: advertise + discover + connect + notify Go.
+     * Call from background thread.
      */
-    fun isWifiConnected(): Boolean {
-        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        val info = wifiManager.connectionInfo
-        return info?.networkId != -1
+    fun startMeshLoop(port: Int) {
+        goPort = port
+        if (running.getAndSet(true)) return
+
+        // Step 1: Register our service (advertise "I'M HERE!")
+        registerService()
+
+        // Step 2: Set up service discovery listeners
+        setupServiceDiscovery()
+
+        // Step 3: Start the scan-connect loop
+        Thread {
+            Log.i(TAG, "Mesh loop started (Go port=$port)")
+            while (running.get()) {
+                try {
+                    discoverAndConnect()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Mesh loop error: ${e.message}")
+                }
+                Thread.sleep(SCAN_INTERVAL_MS)
+            }
+        }.start()
     }
 
     /**
-     * Scan for nearby Wi-Fi Direct peers.
-     * Blocks for up to timeoutSec seconds.
-     * Returns list of discovered device addresses.
+     * Register DNS-SD service so other Iskra devices can find us.
+     * This is the "I'M HERE!" broadcast.
      */
-    fun scanPeers(timeoutSec: Int): List<String> {
-        if (manager == null || channel == null) {
-            Log.w(TAG, "Not initialized")
-            return emptyList()
-        }
+    private fun registerService() {
+        val record = mapOf(
+            "port" to goPort.toString(),
+            "app" to "iskra",
+            "ver" to "1"
+        )
+        val serviceInfo = WifiP2pDnsSdServiceInfo.newInstance(
+            SERVICE_NAME, SERVICE_TYPE, record
+        )
 
-        discoveredPeers.clear()
-        discoveryLatch = CountDownLatch(1)
-
-        manager?.discoverPeers(channel, object : WifiP2pManager.ActionListener {
+        manager?.addLocalService(channel, serviceInfo, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
-                Log.i(TAG, "Discovery started")
+                Log.i(TAG, "Service registered: $SERVICE_NAME ($SERVICE_TYPE) port=$goPort")
             }
             override fun onFailure(reason: Int) {
-                Log.e(TAG, "Discovery failed: reason=$reason")
-                discoveryLatch?.countDown()
+                Log.e(TAG, "Service registration failed: reason=$reason")
             }
         })
+    }
 
-        discoveryLatch?.await(timeoutSec.toLong(), TimeUnit.SECONDS)
-        manager?.stopPeerDiscovery(channel, null)
+    /**
+     * Set up DNS-SD discovery response listeners.
+     * When another Iskra device is found, we store it.
+     */
+    private fun setupServiceDiscovery() {
+        // TXT record listener — receives service metadata (port, app name)
+        val txtListener = WifiP2pManager.DnsSdTxtRecordListener { _, record, device ->
+            val app = record["app"] ?: ""
+            if (app == "iskra") {
+                Log.i(TAG, "Found Iskra device: ${device.deviceName} (${device.deviceAddress})")
+                discoveredDevices[device.deviceAddress] = device.deviceName
+            }
+        }
 
-        return discoveredPeers.map { it.deviceAddress }
+        // Service response listener — receives service type
+        val serviceListener = WifiP2pManager.DnsSdServiceResponseListener { _, _, device ->
+            Log.d(TAG, "Service response from ${device.deviceName}")
+            discoveredDevices[device.deviceAddress] = device.deviceName
+        }
+
+        manager?.setDnsSdResponseListeners(channel, serviceListener, txtListener)
+
+        // Add service discovery request
+        val request = WifiP2pDnsSdServiceRequest.newInstance()
+        manager?.addServiceRequest(channel, request, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                Log.i(TAG, "Service discovery request added")
+            }
+            override fun onFailure(reason: Int) {
+                Log.e(TAG, "Service request failed: reason=$reason")
+            }
+        })
+    }
+
+    /**
+     * One cycle: discover services, connect to new peers, notify Go.
+     */
+    private fun discoverAndConnect() {
+        // Trigger service discovery
+        val scanLatch = CountDownLatch(1)
+        manager?.discoverServices(channel, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                Log.d(TAG, "Service discovery started")
+                // Give it time to collect responses
+                Thread.sleep(5000)
+                scanLatch.countDown()
+            }
+            override fun onFailure(reason: Int) {
+                Log.w(TAG, "Service discovery failed: reason=$reason")
+                scanLatch.countDown()
+            }
+        })
+        scanLatch.await(10, TimeUnit.SECONDS)
+
+        // Try to connect to each discovered device we haven't synced with yet
+        val newPeers = discoveredDevices.keys.filter { it !in connectedPeers }
+        for (mac in newPeers) {
+            Log.i(TAG, "Connecting to ${discoveredDevices[mac]} ($mac)")
+            val peerIP = connectToPeer(mac)
+            if (peerIP != null) {
+                Log.i(TAG, "Connected! Peer IP: $peerIP — notifying Go")
+                connectedPeers.add(mac)
+                notifyGoBackend(peerIP)
+
+                // Stay connected briefly for sync, then disconnect for next peer
+                Thread.sleep(3000)
+                disconnect()
+                Thread.sleep(1000)
+            }
+        }
     }
 
     /**
      * Connect to a specific peer by MAC address.
-     * Returns the Group Owner IP address for TCP sync.
+     * Returns the peer's IP address in the P2P group.
      */
-    fun connectToPeer(deviceAddress: String): String? {
-        if (manager == null || channel == null) return null
-
+    private fun connectToPeer(deviceAddress: String): String? {
         connectionInfo = null
         connectionLatch = CountDownLatch(1)
 
@@ -149,35 +230,59 @@ class WifiDirectManager(private val context: Context) {
             }
         })
 
-        // Wait for connection (up to 15 seconds)
-        connectionLatch?.await(15, TimeUnit.SECONDS)
+        connectionLatch?.await(CONNECT_TIMEOUT_SEC, TimeUnit.SECONDS)
 
-        val info = connectionInfo
-        return info?.groupOwnerAddress?.hostAddress
+        val info = connectionInfo ?: return null
+        if (!info.groupFormed) return null
+
+        // The group owner's IP is always known
+        // If we're the owner, the client connects to us — Go will see the incoming TCP connection
+        // If we're the client, we need the owner's IP to connect
+        return info.groupOwnerAddress?.hostAddress
     }
 
     /**
-     * Disconnect from current P2P group.
+     * Tell Go backend about a discovered peer IP so it can do TCP mesh sync.
      */
-    fun disconnect() {
+    private fun notifyGoBackend(peerIP: String) {
+        try {
+            val url = URL("http://127.0.0.1:$goPort/api/mesh/add-peer")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.connectTimeout = 3000
+            conn.readTimeout = 3000
+            conn.outputStream.write("""{"ip":"$peerIP"}""".toByteArray())
+            val code = conn.responseCode
+            Log.i(TAG, "Notified Go about peer $peerIP: HTTP $code")
+            conn.disconnect()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to notify Go: ${e.message}")
+        }
+    }
+
+    private fun disconnect() {
         manager?.removeGroup(channel, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() {
-                Log.i(TAG, "Disconnected from P2P group")
-            }
-            override fun onFailure(reason: Int) {
-                Log.w(TAG, "Disconnect failed: reason=$reason")
-            }
+            override fun onSuccess() { Log.d(TAG, "Disconnected from P2P group") }
+            override fun onFailure(reason: Int) { Log.w(TAG, "Disconnect failed: $reason") }
         })
         connectionInfo = null
     }
 
-    /**
-     * Cleanup on destroy.
-     */
+    fun stop() {
+        running.set(false)
+        try {
+            manager?.clearLocalServices(channel, null)
+            manager?.clearServiceRequests(channel, null)
+            manager?.stopPeerDiscovery(channel, null)
+        } catch (_: Exception) {}
+    }
+
     fun destroy() {
+        stop()
         try {
             context.unregisterReceiver(receiver)
         } catch (_: Exception) {}
-        manager?.stopPeerDiscovery(channel, null)
     }
 }
