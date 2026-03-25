@@ -15,8 +15,8 @@ import (
 
 // Hold propagation constants
 const (
-	DefaultHopTTL     = 7              // Max hops before exhaustion
-	DefaultFwdLimit   = 3              // Max forwards per hop (per device)
+	DefaultHopTTL     = 10             // Max hops before exhaustion
+	DefaultFwdLimit   = 15             // Max forwards per hop (per device) — generous for small network
 	MorgueTimeout     = 3 * time.Hour  // Time in morgue before deletion
 	KillSwitchTTL     = 30 * 24 * time.Hour // 30 days absolute TTL
 )
