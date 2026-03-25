@@ -737,6 +737,31 @@ body {
   100% { transform: scale(1); }
 }
 
+/* Master developer contact */
+.master-badge {
+  display: inline-block;
+  font-size: 8px;
+  background: linear-gradient(135deg, #B8860B, #DAA520);
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  vertical-align: middle;
+}
+.master-contact {
+  border-left: 3px solid #DAA520;
+}
+.master-contact .contact-avatar {
+  box-shadow: 0 0 0 2px #DAA520;
+}
+/* Master message color (dark gold) */
+.message.master-msg.in {
+  background: linear-gradient(135deg, #FFF8E7, #FFF3D0);
+  border-left: 2px solid #DAA520;
+}
+
 .contacts-empty {
   padding: 40px 20px;
   text-align: center;
