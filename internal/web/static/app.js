@@ -494,6 +494,15 @@
     const items = [];
     if (hasGroups) groups.forEach(g => items.push({type: 'group', data: g, ts: lastActivity['g:' + g.id] || 0}));
     if (hasContacts) contacts.forEach(c => items.push({type: 'contact', data: c, ts: lastActivity[c.user_id] || 0}));
+
+    // Add unknown senders (have messages but not in contacts) — shows as "Unknown: {id}"
+    const knownUIDs = new Set((contacts || []).map(c => c.user_id));
+    for (const uid of Object.keys(unreadCounts)) {
+      if (!uid.startsWith('g:') && !knownUIDs.has(uid)) {
+        items.push({type: 'contact', data: {user_id: uid, name: uid.substring(0, 12) + '...'}, ts: lastActivity[uid] || Date.now()/1000});
+      }
+    }
+
     items.sort((a, b) => b.ts - a.ts);
 
     // Check which contacts are online

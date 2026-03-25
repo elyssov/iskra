@@ -79,6 +79,17 @@ func (in *Inbox) GetMessages(contactID string) []InboxMessage {
 	return result
 }
 
+// Keys returns all contact IDs that have messages in the inbox.
+func (in *Inbox) Keys() []string {
+	in.mu.RLock()
+	defer in.mu.RUnlock()
+	keys := make([]string, 0, len(in.messages))
+	for k := range in.messages {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // DeleteChat removes all messages for a contact.
 func (in *Inbox) DeleteChat(contactID string) {
 	in.mu.Lock()
