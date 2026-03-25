@@ -106,6 +106,26 @@ func NewBroadcast(author *identity.Keypair, contentType uint8, plaintext []byte)
 	return msg, nil
 }
 
+// NewPlainBroadcast creates a signed but unencrypted broadcast message.
+// Anyone can read the payload, but the signature proves authorship.
+func NewPlainBroadcast(author *identity.Keypair, contentType uint8, plaintext []byte) (*Message, error) {
+	msg := &Message{
+		Version:     ProtocolVersion,
+		TTL:         DefaultTTL,
+		Timestamp:   time.Now().Unix(),
+		ContentType: contentType,
+		AuthorPub:   author.Ed25519Pub,
+		Payload:     plaintext, // Not encrypted — readable by all
+	}
+	// RecipientID stays all zeros for broadcast
+
+	msg.ID = msg.computeID()
+	msg.Signature = iskraCrypto.Sign(author.Ed25519Private, msg.signableBytes())
+	msg.PoWNonce = iskraCrypto.SolvePoW(msg.ID, msg.Timestamp, 16)
+
+	return msg, nil
+}
+
 // computeID returns SHA256 of all message fields except ID, Signature, PoWNonce.
 func (m *Message) computeID() [32]byte {
 	h := sha256.New()

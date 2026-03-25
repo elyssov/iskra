@@ -25,9 +25,10 @@ var (
 	server       *web.Server
 	serverMu     sync.Mutex
 	serverPort   int
-	mobileInbox  *store.Inbox
-	mobileGroups *store.Groups
-	mobileDataDir string
+	mobileInbox    *store.Inbox
+	mobileGroups   *store.Groups
+	mobileChannels *store.Channels
+	mobileDataDir  string
 	autoSaveStop chan struct{}
 )
 
@@ -74,6 +75,11 @@ func Start(dataDir string, port int) int {
 		log.Printf("Failed to load groups: %v", err)
 		return 0
 	}
+	channels, err := store.NewChannels(filepath.Join(dataDir, "channels.json"))
+	if err != nil {
+		log.Printf("Failed to load channels: %v", err)
+		return 0
+	}
 
 	// Initialize mesh (non-fatal — can work relay-only)
 	peers := mesh.NewPeerList()
@@ -114,6 +120,7 @@ func Start(dataDir string, port int) int {
 		Transport:   transport,
 		RelayClient: relayClient,
 		Groups:      groups,
+		Channels:    channels,
 		Mode:        mode,
 		DataDir:     dataDir,
 		Seed:        seed,
@@ -159,6 +166,7 @@ func Start(dataDir string, port int) int {
 	// Save references for persistence on Stop
 	mobileInbox = inbox
 	mobileGroups = groups
+	mobileChannels = channels
 	mobileDataDir = dataDir
 
 	// Start auto-save goroutine (every 10 seconds)
@@ -183,6 +191,11 @@ func Start(dataDir string, port int) int {
 				if mobileGroups != nil {
 					if err := mobileGroups.Save(); err != nil {
 						log.Printf("[Mobile] Auto-save groups error: %v", err)
+					}
+				}
+				if mobileChannels != nil {
+					if err := mobileChannels.Save(); err != nil {
+						log.Printf("[Mobile] Auto-save channels error: %v", err)
 					}
 				}
 				serverMu.Unlock()
@@ -226,6 +239,10 @@ func Stop() {
 		mobileGroups.Save()
 		log.Println("[Mobile] Groups saved on stop")
 	}
+	if mobileChannels != nil {
+		mobileChannels.Save()
+		log.Println("[Mobile] Channels saved on stop")
+	}
 
 	if server != nil {
 		server.Stop()
@@ -234,6 +251,7 @@ func Stop() {
 	}
 	mobileInbox = nil
 	mobileGroups = nil
+	mobileChannels = nil
 	mobileDataDir = ""
 }
 

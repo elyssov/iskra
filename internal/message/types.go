@@ -7,6 +7,7 @@ const (
 	ContentContactsSync    uint8 = 2
 	ContentGroupText       uint8 = 3
 	ContentGroupInvite     uint8 = 4
+	ContentChannelPost     uint8 = 5
 	ContentAppUpdate       uint8 = 255
 )
 

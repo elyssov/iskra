@@ -23,7 +23,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "15.5"
+const BuildNumber = "16"
 
 // API handles REST API requests.
 type API struct {
@@ -37,6 +37,7 @@ type API struct {
 	Transport   *mesh.Transport
 	RelayClient *mesh.RelayClient
 	Groups      *store.Groups
+	Channels    *store.Channels
 	Mode        string // "lan", "relay", "offline"
 	DataDir     string // For restore functionality
 	Seed        [32]byte
@@ -397,6 +398,45 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 				if err := json.Unmarshal(plaintext, &group); err == nil {
 					log.Printf("[Group] Received invite for group %q (%s)", group.Name, group.ID[:8])
 					a.Groups.AddByInvite(group)
+				}
+			}
+		}
+	}
+
+	// Handle broadcast channel posts (plaintext payload, signed)
+	if msg.IsBroadcast() && msg.ContentType == message.ContentChannelPost {
+		if a.Channels != nil {
+			payload := msg.Payload
+			if msg.VerifySignature() {
+				parts := strings.SplitN(string(payload), "|", 3)
+				if len(parts) == 3 {
+					chID := parts[0]
+					chTitle := parts[1]
+					text := parts[2]
+					authorID := identity.UserID(msg.AuthorPub)
+
+					// Auto-subscribe if not subscribed
+					if _, ok := a.Channels.Get(chID); !ok {
+						a.Channels.Subscribe(store.Channel{
+							ID:        chID,
+							AuthorPub: identity.ToBase58(msg.AuthorPub[:]),
+							Title:     chTitle,
+							CreatedAt: time.Now().Unix(),
+							IsOwner:   false,
+						})
+					}
+
+					log.Printf("[Channel] Post in %q from %s: %q", chTitle, authorID[:8], text)
+					a.Channels.AddPost(store.ChannelPost{
+						ID:        hex.EncodeToString(msg.ID[:]),
+						ChannelID: chID,
+						From:      authorID,
+						FromName:  chTitle,
+						Text:      text,
+						Timestamp: msg.Timestamp,
+						Outgoing:  false,
+					})
+					a.Channels.Save()
 				}
 			}
 		}
@@ -1290,6 +1330,156 @@ func (a *API) HandlePanic(w http.ResponseWriter, r *http.Request) {
 	log.Println("[PANIC] Wipe complete, decoy generated")
 
 	writeJSON(w, map[string]interface{}{"ok": true, "wiped": true})
+}
+
+// ─── Channels (broadcast one-to-many) ───────────────────────────────
+
+// HandleCreateChannel creates a new broadcast channel.
+func (a *API) HandleCreateChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		Title string `json:"title"`
+	}
+	if err := readJSON(r, &req); err != nil || req.Title == "" {
+		http.Error(w, "title required", 400)
+		return
+	}
+
+	userID := identity.UserID(a.Keypair.Ed25519Pub)
+	authorPub := identity.ToBase58(a.Keypair.Ed25519Pub[:])
+	x25519Pub := identity.ToBase58(a.Keypair.X25519Pub[:])
+
+	ch := a.Channels.Create(userID, authorPub, x25519Pub, req.Title)
+	writeJSON(w, ch)
+}
+
+// HandleListChannels returns all subscribed channels.
+func (a *API) HandleListChannels(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, a.Channels.List())
+}
+
+// HandleChannelPosts returns posts for a channel.
+func (a *API) HandleChannelPosts(w http.ResponseWriter, r *http.Request) {
+	chID := strings.TrimPrefix(r.URL.Path, "/api/channels/posts/")
+	if chID == "" {
+		http.Error(w, "channel ID required", 400)
+		return
+	}
+	writeJSON(w, a.Channels.Posts(chID))
+}
+
+// HandlePostToChannel publishes a broadcast post.
+func (a *API) HandlePostToChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	chID := strings.TrimPrefix(r.URL.Path, "/api/channels/post/")
+	ch, ok := a.Channels.Get(chID)
+	if !ok {
+		http.Error(w, "channel not found", 404)
+		return
+	}
+	if !ch.IsOwner {
+		http.Error(w, "only channel owner can post", 403)
+		return
+	}
+
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := readJSON(r, &req); err != nil || req.Text == "" {
+		http.Error(w, "text required", 400)
+		return
+	}
+
+	// Create broadcast message
+	userID := identity.UserID(a.Keypair.Ed25519Pub)
+	payload := []byte(chID + "|" + ch.Title + "|" + req.Text)
+
+	msg, err := message.NewPlainBroadcast(a.Keypair, message.ContentChannelPost, payload)
+	if err != nil {
+		http.Error(w, "failed to create broadcast: "+err.Error(), 500)
+		return
+	}
+
+	// Store locally
+	post := store.ChannelPost{
+		ID:        fmt.Sprintf("%x", msg.ID),
+		ChannelID: chID,
+		From:      userID,
+		FromName:  "You",
+		Text:      req.Text,
+		Timestamp: time.Now().Unix(),
+		Outgoing:  true,
+	}
+	a.Channels.AddPost(post)
+
+	// Broadcast via relay and mesh
+	a.Bloom.Add(msg.ID)
+	a.Hold.Store(msg)
+	if a.RelayClient != nil {
+		a.RelayClient.SendMessage(msg)
+	}
+	if a.Transport != nil {
+		a.Transport.BroadcastMessage(msg)
+	}
+
+	// Auto-save
+	if a.DataDir != "" {
+		a.Channels.Save()
+	}
+
+	writeJSON(w, post)
+}
+
+// HandleSubscribeChannel subscribes to a channel.
+func (a *API) HandleSubscribeChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		ID        string `json:"id"`
+		AuthorPub string `json:"author_pub"`
+		X25519Pub string `json:"x25519_pub"`
+		Title     string `json:"title"`
+	}
+	if err := readJSON(r, &req); err != nil || req.ID == "" {
+		http.Error(w, "channel info required", 400)
+		return
+	}
+
+	ch := store.Channel{
+		ID:        req.ID,
+		AuthorPub: req.AuthorPub,
+		X25519Pub: req.X25519Pub,
+		Title:     req.Title,
+		CreatedAt: time.Now().Unix(),
+		IsOwner:   false,
+	}
+	a.Channels.Subscribe(ch)
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// HandleUnsubscribeChannel removes a channel subscription.
+func (a *API) HandleUnsubscribeChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := readJSON(r, &req); err != nil || req.ID == "" {
+		http.Error(w, "channel ID required", 400)
+		return
+	}
+	a.Channels.Unsubscribe(req.ID)
+	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func writeJSON(w http.ResponseWriter, v interface{}) {

@@ -58,13 +58,24 @@ class MainActivity : AppCompatActivity() {
         // Show splash screen immediately
         setContentView(R.layout.activity_splash)
 
-        // Request notification permission for Android 13+
+        // Request permissions for notifications, location, and WiFi Direct
+        val permsNeeded = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+                permsNeeded.add(Manifest.permission.POST_NOTIFICATIONS)
             }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES)
+                != PackageManager.PERMISSION_GRANTED) {
+                permsNeeded.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED) {
+            permsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (permsNeeded.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, permsNeeded.toTypedArray(), 1001)
         }
 
         // Set up timeout watchdog
