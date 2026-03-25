@@ -36,6 +36,10 @@ const I18N = {
     // Sidebar buttons
     btn_add: 'Добавить',
     btn_group: 'Группа',
+    btn_channel: 'Канал',
+    label_channels: 'Каналы',
+    label_online: 'В сети',
+    channel_name_prompt: 'Название канала:',
     btn_key: 'Ключ',
 
     // Chat
@@ -191,6 +195,10 @@ const I18N = {
     // Sidebar buttons
     btn_add: 'Add',
     btn_group: 'Group',
+    btn_channel: 'Channel',
+    label_channels: 'Channels',
+    label_online: 'Online',
+    channel_name_prompt: 'Channel name:',
     btn_key: 'Key',
 
     // Chat

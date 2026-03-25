@@ -95,23 +95,32 @@
       <div id="status-bar"></div>
     </div>
     <div id="update-banner" style="display:none"></div>
-    <div id="online-section" style="display:none">
-      <div id="online-header">В сети сейчас:</div>
-      <div id="online-list"></div>
+    <div id="sidebar-body">
+      <div id="contacts-list"></div>
+      <div id="channels-section" style="display:none">
+        <div class="section-label" data-i18n="label_channels">Каналы</div>
+        <div id="channels-list"></div>
+      </div>
+      <div id="online-section" style="display:none">
+        <div class="section-label" data-i18n="label_online">В сети</div>
+        <div id="online-list"></div>
+      </div>
     </div>
-    <div id="contacts-list"></div>
     <div id="sidebar-footer">
       <button id="btn-add-contact" title="Добавить контакт">
         <span class="btn-icon">+</span> <span data-i18n="btn_add">Добавить</span>
       </button>
       <button id="btn-create-group" title="Создать группу">
-        <span class="btn-icon">&#128101;</span> <span data-i18n="btn_group">Группа</span>
+        <span class="btn-icon">G</span> <span data-i18n="btn_group">Группа</span>
+      </button>
+      <button id="btn-create-channel" title="Создать канал">
+        <span class="btn-icon">CH</span> <span data-i18n="btn_channel">Канал</span>
       </button>
       <button id="btn-show-id" title="Моя визитка и ключи">
-        <span class="btn-icon">🔑</span> <span data-i18n="btn_key">Ключ</span>
+        <span class="btn-icon">ID</span> <span data-i18n="btn_key">Ключ</span>
       </button>
       <button id="btn-change-pin" title="Сменить PIN-код">
-        <span class="btn-icon">🔒</span> <span data-i18n="pin_btn_change">Сменить PIN</span>
+        <span class="btn-icon">PIN</span> <span data-i18n="pin_btn_change">PIN</span>
       </button>
     </div>
   </div>

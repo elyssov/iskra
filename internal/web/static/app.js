@@ -4,6 +4,9 @@
   let currentGroup = null; // group chat mode
   let contacts = [];
   let groups = [];
+  let channels = [];
+  let currentChannel = null;
+  let channelPostCache = {};
   let pollTimer = null;
   let unreadCounts = {}; // userID or groupID -> count
   let lastRenderedHTML = ''; // prevent flicker on re-render
@@ -14,9 +17,9 @@
 
   // Цвета аватаров — теплые, различимые
   const avatarColors = [
-    '#e17055', '#00b894', '#6c5ce7', '#fdcb6e', '#0984e3',
-    '#d63031', '#00cec9', '#e84393', '#2d3436', '#636e72',
-    '#a29bfe', '#fab1a0', '#74b9ff', '#55efc4', '#fd79a8'
+    '#8B5CF6', '#6366F1', '#0891B2', '#059669', '#DC2626',
+    '#0284C7', '#7C2D12', '#6B7280', '#9333EA', '#0369A1',
+    '#B45309', '#4338CA', '#0F766E', '#BE123C', '#475569'
   ];
 
   function getAvatarColor(name) {
@@ -288,6 +291,7 @@
 
     await loadContacts();
     await loadGroups();
+    await loadChannels();
     await loadStatus();
     checkForUpdate();
     loadOnline();
@@ -709,8 +713,6 @@
 
       if (data.count > 0) {
         section.style.display = 'block';
-        document.getElementById('online-header').textContent =
-          `${t('online_now')} (${data.count}):`;
 
         list.innerHTML = onlinePeers.map((p, i) => {
           // Check if this peer is a known contact
@@ -778,6 +780,101 @@
       if (!groups) groups = [];
       renderContacts(); // re-render to include groups
     } catch(e) { groups = []; }
+  }
+
+  // === CHANNELS ===
+  async function loadChannels() {
+    try {
+      const resp = await fetch('/api/channels');
+      channels = await resp.json();
+      if (!channels) channels = [];
+      renderChannels();
+    } catch(e) { channels = []; }
+  }
+
+  function renderChannels() {
+    const section = document.getElementById('channels-section');
+    const list = document.getElementById('channels-list');
+    if (!channels || channels.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = 'block';
+    list.innerHTML = channels.map(ch => {
+      const color = getAvatarColor(ch.title || ch.id);
+      const initial = (ch.title || 'C')[0].toUpperCase();
+      const ownerBadge = ch.is_owner ? '<span class="channel-owner-badge">owner</span>' : '';
+      return `<div class="channel-item" onclick="openChannel('${esc(ch.id)}')">
+        <div class="contact-avatar" style="background:${color}">${initial}</div>
+        <div style="min-width:0;flex:1">
+          <div class="contact-name">${esc(ch.title || ch.id.substring(0,8))}${ownerBadge}</div>
+          <div class="contact-preview">${ch.is_owner ? 'Your channel' : 'Subscribed'}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  window.openChannel = function(chID) {
+    const ch = channels.find(c => c.id === chID);
+    if (!ch) return;
+    currentContact = null;
+    currentGroup = null;
+    currentChannel = ch;
+    document.getElementById('chat-name').textContent = ch.title || ch.id.substring(0,8);
+    document.getElementById('chat-status').textContent = ch.is_owner ? 'Your channel' : 'Broadcast';
+    document.getElementById('input-area').style.display = ch.is_owner ? 'flex' : 'none';
+    document.getElementById('welcome-screen').style.display = 'none';
+    document.getElementById('messages').style.display = 'block';
+    document.getElementById('app').classList.add('chat-open');
+    document.getElementById('chat-encrypted').style.display = 'none';
+    document.getElementById('btn-delete-chat').style.display = 'none';
+    document.getElementById('btn-rename-contact').style.display = 'none';
+    loadChannelPosts();
+  };
+
+  let lastChannelPostJSON = '';
+  async function loadChannelPosts() {
+    if (!currentChannel) return;
+    try {
+      const resp = await fetch('/api/channels/posts/' + currentChannel.id);
+      const posts = await resp.json();
+      const json = JSON.stringify(posts);
+      channelPostCache[currentChannel.id] = posts;
+      if (json !== lastChannelPostJSON) {
+        lastChannelPostJSON = json;
+        renderChannelPosts(posts);
+      }
+    } catch(e) {}
+  }
+
+  function renderChannelPosts(posts) {
+    const container = document.getElementById('messages');
+    if (!posts || posts.length === 0) {
+      container.innerHTML = '<div class="messages-empty">No posts yet</div>';
+      return;
+    }
+    container.innerHTML = posts.map(p => {
+      const cls = p.outgoing ? 'out' : 'in';
+      const time = new Date(p.timestamp * 1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      return `<div class="message ${cls}"><div class="msg-text">${esc(p.text)}</div><span class="msg-time">${time}</span></div>`;
+    }).join('');
+    container.scrollTop = container.scrollHeight;
+  }
+
+  async function sendChannelPost() {
+    if (!currentChannel || !currentChannel.is_owner) return;
+    const input = document.getElementById('msg-input');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    try {
+      await fetch('/api/channels/post/' + currentChannel.id, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text})
+      });
+      loadChannelPosts();
+    } catch(e) {}
   }
 
   function openGroupChat(group) {
@@ -1115,12 +1212,14 @@
   function setupEvents() {
     // Send
     document.getElementById('btn-send').addEventListener('click', () => {
-      if (currentGroup) sendGroupMessage(); else sendMessage();
+      if (currentChannel) sendChannelPost();
+      else if (currentGroup) sendGroupMessage(); else sendMessage();
     });
     document.getElementById('msg-input').addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        if (currentGroup) sendGroupMessage(); else sendMessage();
+        if (currentChannel) sendChannelPost();
+        else if (currentGroup) sendGroupMessage(); else sendMessage();
       }
     });
     document.getElementById('msg-input').addEventListener('input', function() {
@@ -1153,6 +1252,20 @@
       document.getElementById('pin-error').textContent = '';
       document.getElementById('pin-attempts').textContent = '';
       document.getElementById('pin-screen').style.display = 'flex';
+    });
+
+    // Create channel
+    document.getElementById('btn-create-channel').addEventListener('click', async () => {
+      const title = prompt(t('channel_name_prompt') || 'Channel name:');
+      if (!title) return;
+      try {
+        await fetch('/api/channels/create', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({title})
+        });
+        loadChannels();
+      } catch(e) {}
     });
 
     // Delete chat (works for both DM and group)
@@ -1517,9 +1630,10 @@
     setInterval(() => {
       if (currentContact) loadMessages();
       if (currentGroup) loadGroupMessages();
+      if (currentChannel) loadChannelPosts();
     }, 2000);
     setInterval(() => {
-      loadContacts().then(() => loadGroups()).then(() => updateUnreadCounts());
+      loadContacts().then(() => loadGroups()).then(() => loadChannels()).then(() => updateUnreadCounts());
       loadStatus();
       loadOnline();
     }, 5000);
