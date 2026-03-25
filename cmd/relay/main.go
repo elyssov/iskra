@@ -189,17 +189,10 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Notify all existing peers: "new peer arrived — sync your holds!"
-	// Send special frame: sender=new_peer's edPub prefix, payload="NEWSYNC"
 	syncNotify := make([]byte, 20+7)
 	copy(syncNotify[:20], edPub[:20])
 	copy(syncNotify[20:], []byte("NEWSYNC"))
-	r.mu.RLock()
-	for uid, ci := range r.clients {
-		if uid != userID {
-			ci.conn.WriteMessage(websocket.BinaryMessage, syncNotify)
-		}
-	}
-	r.mu.RUnlock()
+	r.broadcastExcept(userID, syncNotify)
 
 	// Server-side ping — detect dead connections proactively
 	pingDone := make(chan struct{})
@@ -248,14 +241,8 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		}
 
 		if isBroadcast {
-			// Broadcast to ALL online peers (except sender) — store-and-forward
-			r.mu.RLock()
-			for uid, ci := range r.clients {
-				if uid != userID {
-					ci.conn.WriteMessage(websocket.BinaryMessage, frame)
-				}
-			}
-			r.mu.RUnlock()
+			// Broadcast to ALL online peers (except sender)
+			r.broadcastExcept(userID, frame)
 		} else {
 			r.mu.RLock()
 			targetCI, online := r.clients[recipID]
@@ -265,13 +252,7 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 				targetCI.conn.WriteMessage(websocket.BinaryMessage, frame)
 			} else {
 				// Recipient offline — broadcast to all (store in their holds)
-				r.mu.RLock()
-				for uid, ci := range r.clients {
-					if uid != userID {
-						ci.conn.WriteMessage(websocket.BinaryMessage, frame)
-					}
-				}
-				r.mu.RUnlock()
+				r.broadcastExcept(userID, frame)
 			}
 		}
 	}
@@ -284,6 +265,24 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		delete(r.aliases, userID)
 	}
 	r.mu.Unlock()
+}
+
+// broadcastExcept sends a frame to all connected clients except the given userID.
+// Copies the conn list first to avoid holding lock during write.
+func (r *relay) broadcastExcept(excludeUID string, frame []byte) {
+	r.mu.RLock()
+	targets := make([]*websocket.Conn, 0, len(r.clients))
+	for uid, ci := range r.clients {
+		if uid != excludeUID {
+			targets = append(targets, ci.conn)
+		}
+	}
+	r.mu.RUnlock()
+
+	for _, c := range targets {
+		c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		c.WriteMessage(websocket.BinaryMessage, frame)
+	}
 }
 
 func uint32Bytes(v uint32) []byte {
