@@ -1363,6 +1363,16 @@ func (a *API) HandleMasterLogin(w http.ResponseWriter, r *http.Request) {
 	// Save seed for this session
 	copy(a.Seed[:], seed[:])
 
+	// Unlock the app (same as PIN verify)
+	a.Locked = false
+	if a.UnlockCh != nil {
+		select {
+		case <-a.UnlockCh:
+		default:
+			close(a.UnlockCh)
+		}
+	}
+
 	log.Println("[Master] Developer logged in as Мастер")
 	writeJSON(w, map[string]interface{}{
 		"ok":     true,
