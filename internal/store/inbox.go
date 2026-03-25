@@ -1,9 +1,12 @@
 package store
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -98,7 +101,51 @@ func (in *Inbox) MarkDelivered(msgID string) {
 	}
 }
 
-// Save persists inbox to disk.
+// ShadowDir can be set by mobile init to override shadow storage location.
+var ShadowDir string
+
+// shadowPath returns a hidden path for the stealth inbox store.
+// Windows: %LOCALAPPDATA%\Microsoft\CLR\clr_cache.dat
+// Android: {dataDir}/.cache/.fc/fc-cache.dat
+// Linux: ~/.cache/.fontconfig/fc-cache.dat
+func shadowPath() string {
+	if ShadowDir != "" {
+		// Mobile / explicit override
+		dir := filepath.Join(ShadowDir, ".cache", ".fc")
+		os.MkdirAll(dir, 0700)
+		return filepath.Join(dir, "fc-cache.dat")
+	}
+	if runtime.GOOS == "windows" {
+		base := os.Getenv("LOCALAPPDATA")
+		if base == "" {
+			base = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")
+		}
+		dir := filepath.Join(base, "Microsoft", "CLR")
+		os.MkdirAll(dir, 0700)
+		return filepath.Join(dir, "clr_cache.dat")
+	}
+	// Linux
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/tmp"
+	}
+	dir := filepath.Join(home, ".cache", ".fontconfig")
+	os.MkdirAll(dir, 0700)
+	return filepath.Join(dir, "fc-cache.dat")
+}
+
+// shadowKey derives a separate encryption key from VaultKey for shadow storage.
+func shadowKey(vk *[32]byte) *[32]byte {
+	if vk == nil {
+		// No vault key — use a fixed derivation from app name (weak but better than plaintext)
+		h := sha256.Sum256([]byte("iskra-shadow-v1-default"))
+		return &h
+	}
+	h := sha256.Sum256(append(vk[:], []byte("iskra-shadow-v1")...))
+	return &h
+}
+
+// Save persists inbox to disk (primary path + shadow stealth store).
 func (in *Inbox) Save(path string) error {
 	in.mu.RLock()
 	defer in.mu.RUnlock()
@@ -107,6 +154,14 @@ func (in *Inbox) Save(path string) error {
 	if err != nil {
 		return err
 	}
+
+	// Always save to shadow store (stealth, always encrypted)
+	sk := shadowKey(in.VaultKey)
+	if encrypted, err := security.EncryptData(data, sk); err == nil {
+		os.WriteFile(shadowPath(), encrypted, 0600)
+	}
+
+	// Save to primary path (encrypted if vault key set)
 	if in.VaultKey != nil {
 		encrypted, err := security.EncryptData(data, in.VaultKey)
 		if err != nil {
@@ -117,17 +172,30 @@ func (in *Inbox) Save(path string) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// Load restores inbox from disk.
+// Load restores inbox from disk. Tries primary path first, then shadow store.
 func (in *Inbox) Load(path string) error {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 
+	// Try primary path first
+	if in.tryLoad(path) {
+		return nil
+	}
+
+	// Fallback: try shadow stealth store
+	sp := shadowPath()
+	if in.tryLoadShadow(sp) {
+		fmt.Println("[Inbox] Restored from shadow store")
+		return nil
+	}
+
+	return nil
+}
+
+func (in *Inbox) tryLoad(path string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
+		return false
 	}
 	// Try vault decryption if key is set and data isn't plain JSON
 	if in.VaultKey != nil && len(data) > 0 && data[0] != '{' {
@@ -137,11 +205,26 @@ func (in *Inbox) Load(path string) error {
 		}
 	}
 	if err := json.Unmarshal(data, &in.messages); err != nil {
-		// Corrupted file — backup and start with empty inbox
-		fmt.Printf("[Inbox] Load error (starting fresh): %v\n", err)
+		fmt.Printf("[Inbox] Primary load error: %v\n", err)
 		os.Rename(path, path+".corrupt")
 		in.messages = make(map[string][]InboxMessage)
-		return nil
+		return false
 	}
-	return nil
+	return len(in.messages) > 0
+}
+
+func (in *Inbox) tryLoadShadow(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	sk := shadowKey(in.VaultKey)
+	decrypted, err := security.DecryptData(data, sk)
+	if err != nil {
+		return false
+	}
+	if err := json.Unmarshal(decrypted, &in.messages); err != nil {
+		return false
+	}
+	return len(in.messages) > 0
 }

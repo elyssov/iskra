@@ -23,7 +23,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "17.1"
+const BuildNumber = "17.2"
 
 // API handles REST API requests.
 type API struct {
@@ -1362,6 +1362,20 @@ func (a *API) HandleMasterLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Save seed for this session
 	copy(a.Seed[:], seed[:])
+
+	// Master operates without vault encryption — clear VaultKey and reload stores
+	a.VaultKey = nil
+	if a.Contacts != nil {
+		a.Contacts.VaultKey = nil
+	}
+	if a.Inbox != nil {
+		a.Inbox.VaultKey = nil
+		a.Inbox.Load(filepath.Join(a.DataDir, "inbox.json"))
+	}
+	if a.Groups != nil {
+		a.Groups.VaultKey = nil
+		a.Groups.Load()
+	}
 
 	// Unlock the app (same as PIN verify)
 	a.Locked = false
