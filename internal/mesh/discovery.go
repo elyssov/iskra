@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	MulticastAddr    = "239.42.42.42:4242"
-	BeaconMagic      = "ISKRA1"
-	BeaconInterval   = 5 * time.Second // Aggressive for alpha — find peers fast
-	BeaconSize       = 6 + 32 + 2 + 1 + 8 // magic + pubkey + port + version + timestamp = 49 bytes
+	MulticastAddr  = "239.42.42.42:4242"
+	BeaconMagic    = "ISKRA1"
+	BeaconInterval = 5 * time.Second // Aggressive for alpha — find peers fast
+	BeaconSize     = 6 + 32 + 2 + 1 + 8 // magic + pubkey + port + version + timestamp = 49 bytes
 )
 
 // Discovery handles LAN multicast peer discovery.
@@ -41,18 +41,80 @@ func (d *Discovery) SetOnPeer(fn func(pubKey [32]byte, ip string, port uint16)) 
 	d.onPeer = fn
 }
 
-// Start begins sending and listening for beacons.
+// Start begins sending and listening for beacons on ALL network interfaces.
 func (d *Discovery) Start() error {
-	// Start listener
-	go d.listen()
-	// Start sender
-	go d.send()
+	// Start listeners on all interfaces
+	ifaces := multicastInterfaces()
+	if len(ifaces) == 0 {
+		log.Printf("[Discovery] No multicast interfaces found, starting on default")
+		go d.listenOnInterface(nil)
+		go d.sendOnInterface(nil)
+	} else {
+		for _, iface := range ifaces {
+			iface := iface // capture
+			log.Printf("[Discovery] Starting on interface %s (%s)", iface.Name, ifaceAddrs(&iface))
+			go d.listenOnInterface(&iface)
+			go d.sendOnInterface(&iface)
+		}
+	}
 	return nil
 }
 
 // Stop stops discovery.
 func (d *Discovery) Stop() {
 	close(d.stop)
+}
+
+// multicastInterfaces returns all active interfaces that support multicast.
+func multicastInterfaces() []net.Interface {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var result []net.Interface
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		if iface.Flags&net.FlagMulticast == 0 {
+			continue
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		// Must have at least one IPv4 address
+		addrs, err := iface.Addrs()
+		if err != nil || len(addrs) == 0 {
+			continue
+		}
+		hasIPv4 := false
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+				hasIPv4 = true
+				break
+			}
+		}
+		if hasIPv4 {
+			result = append(result, iface)
+		}
+	}
+	return result
+}
+
+// ifaceAddrs returns a summary of interface addresses for logging.
+func ifaceAddrs(iface *net.Interface) string {
+	addrs, err := iface.Addrs()
+	if err != nil || len(addrs) == 0 {
+		return "no addrs"
+	}
+	s := ""
+	for _, a := range addrs {
+		if s != "" {
+			s += ", "
+		}
+		s += a.String()
+	}
+	return s
 }
 
 // makeBeacon creates the beacon packet.
@@ -80,21 +142,42 @@ func parseBeacon(data []byte) (pubKey [32]byte, port uint16, version uint8, err 
 	return pubKey, port, version, nil
 }
 
-func (d *Discovery) send() {
+func (d *Discovery) sendOnInterface(iface *net.Interface) {
 	addr, err := net.ResolveUDPAddr("udp4", MulticastAddr)
 	if err != nil {
 		return
 	}
 
-	conn, err := net.DialUDP("udp4", nil, addr)
+	// Bind to specific interface by using its local address
+	var localAddr *net.UDPAddr
+	if iface != nil {
+		addrs, err := iface.Addrs()
+		if err == nil {
+			for _, a := range addrs {
+				if ipnet, ok := a.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+					localAddr = &net.UDPAddr{IP: ipnet.IP}
+					break
+				}
+			}
+		}
+	}
+
+	conn, err := net.DialUDP("udp4", localAddr, addr)
 	if err != nil {
-		log.Printf("[Discovery] Failed to dial multicast: %v", err)
+		ifName := "default"
+		if iface != nil {
+			ifName = iface.Name
+		}
+		log.Printf("[Discovery] Failed to dial multicast on %s: %v", ifName, err)
 		return
 	}
 	defer conn.Close()
 
-	// Send immediately on start
-	log.Printf("[Discovery] Sending beacon to %s (port %d)", MulticastAddr, d.listenPort)
+	ifName := "default"
+	if iface != nil {
+		ifName = iface.Name
+	}
+	log.Printf("[Discovery] Sending beacons on %s to %s (port %d)", ifName, MulticastAddr, d.listenPort)
 	conn.Write(d.makeBeacon())
 
 	ticker := time.NewTicker(BeaconInterval)
@@ -110,19 +193,28 @@ func (d *Discovery) send() {
 	}
 }
 
-func (d *Discovery) listen() {
+func (d *Discovery) listenOnInterface(iface *net.Interface) {
 	addr, err := net.ResolveUDPAddr("udp4", MulticastAddr)
 	if err != nil {
 		return
 	}
 
-	conn, err := net.ListenMulticastUDP("udp4", nil, addr)
+	conn, err := net.ListenMulticastUDP("udp4", iface, addr)
 	if err != nil {
-		log.Printf("[Discovery] Failed to listen multicast: %v", err)
+		ifName := "default"
+		if iface != nil {
+			ifName = iface.Name
+		}
+		log.Printf("[Discovery] Failed to listen multicast on %s: %v", ifName, err)
 		return
 	}
 	defer conn.Close()
-	log.Printf("[Discovery] Listening for beacons on %s", MulticastAddr)
+
+	ifName := "default"
+	if iface != nil {
+		ifName = iface.Name
+	}
+	log.Printf("[Discovery] Listening for beacons on %s (%s)", ifName, MulticastAddr)
 
 	conn.SetReadBuffer(1024)
 
@@ -151,7 +243,7 @@ func (d *Discovery) listen() {
 		}
 
 		ip := src.IP.String()
-		log.Printf("[Discovery] Found peer %s:%d", ip, port)
+		log.Printf("[Discovery] Found peer %s:%d via %s", ip, port, ifName)
 		d.peers.AddOrUpdate(pubKey, ip, port)
 
 		if d.onPeer != nil {

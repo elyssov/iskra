@@ -95,6 +95,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load groups: %v", err)
 	}
+	channels, err := store.NewChannels(filepath.Join(*dataDir, "channels.json"))
+	if err != nil {
+		log.Fatalf("Failed to load channels: %v", err)
+	}
 
 	// Initialize mesh
 	peers := mesh.NewPeerList()
@@ -140,6 +144,7 @@ func main() {
 		Transport:   transport,
 		RelayClient: relayClient,
 		Groups:      groups,
+		Channels:    channels,
 		Mode:        mode,
 		DataDir:     *dataDir,
 		Seed:        seed,
@@ -229,6 +234,7 @@ func main() {
 	fmt.Println("\nОстановка...")
 	inbox.Save(filepath.Join(*dataDir, "inbox.json"))
 	groups.Save()
+	channels.Save()
 	discovery.Stop()
 	transport.Stop()
 	if relayClient != nil {
