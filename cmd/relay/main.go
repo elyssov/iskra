@@ -249,9 +249,17 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 			r.mu.RUnlock()
 
 			if online {
+				// Direct delivery — fastest path
+				targetCI.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				targetCI.conn.WriteMessage(websocket.BinaryMessage, frame)
 			} else {
-				// Recipient offline — broadcast to all (store in their holds)
+				// Recipient offline — queue for when they connect + broadcast to peers' holds
+				r.mu.Lock()
+				if len(r.pending[recipID]) < 500 {
+					r.pending[recipID] = append(r.pending[recipID], frame)
+				}
+				r.mu.Unlock()
+				// Also broadcast to online peers as store-and-forward backup
 				r.broadcastExcept(userID, frame)
 			}
 		}
