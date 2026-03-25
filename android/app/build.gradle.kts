@@ -11,7 +11,7 @@ android {
         applicationId = "com.iskra.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 16
+        versionCode = 17
         versionName = "0.5.0-alpha"
     }
 

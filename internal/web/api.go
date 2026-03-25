@@ -23,7 +23,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "16.2"
+const BuildNumber = "17"
 
 // API handles REST API requests.
 type API struct {
@@ -1330,6 +1330,55 @@ func (a *API) HandlePanic(w http.ResponseWriter, r *http.Request) {
 	log.Println("[PANIC] Wipe complete, decoy generated")
 
 	writeJSON(w, map[string]interface{}{"ok": true, "wiped": true})
+}
+
+// ─── Master developer account (temporary support contact) ───────────
+
+// HandleMasterLogin handles the developer login flow.
+func (a *API) HandleMasterLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false})
+		return
+	}
+
+	seed, ok := VerifyMasterCredentials(req.Login, req.Password)
+	if !ok {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "invalid"})
+		return
+	}
+
+	// Switch identity to master account
+	kp := MasterKeypairFromSeed(*seed)
+	a.Keypair = kp
+	a.Mnemonic = nil // Master has no mnemonic
+
+	// Save seed for this session
+	copy(a.Seed[:], seed[:])
+
+	log.Println("[Master] Developer logged in as Мастер")
+	writeJSON(w, map[string]interface{}{
+		"ok":     true,
+		"userID": identity.UserID(kp.Ed25519Pub),
+	})
+}
+
+// HandleMasterCheck returns master contact info for auto-add.
+func (a *API) HandleMasterCheck(w http.ResponseWriter, r *http.Request) {
+	uid, name, edPub, x25519 := MasterContact()
+	writeJSON(w, map[string]interface{}{
+		"userID":    uid,
+		"name":      name,
+		"edPub":     edPub,
+		"x25519Pub": x25519,
+	})
 }
 
 // ─── Mesh peer injection (WiFi Direct → TCP sync) ──────────────────
