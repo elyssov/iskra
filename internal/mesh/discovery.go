@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -23,6 +24,8 @@ type Discovery struct {
 	peers      *PeerList
 	onPeer     func(pubKey [32]byte, ip string, port uint16)
 	stop       chan struct{}
+	cooldown   map[[32]byte]time.Time // pubKey -> last onPeer call
+	cdMu       sync.Mutex
 }
 
 // NewDiscovery creates a new LAN discovery service.
@@ -33,6 +36,7 @@ func NewDiscovery(pubKey [32]byte, listenPort uint16, peers *PeerList) *Discover
 		version:    1,
 		peers:      peers,
 		stop:       make(chan struct{}),
+		cooldown:   make(map[[32]byte]time.Time),
 	}
 }
 
@@ -243,9 +247,19 @@ func (d *Discovery) listenOnInterface(iface *net.Interface) {
 		}
 
 		ip := src.IP.String()
-		log.Printf("[Discovery] Found peer %s:%d via %s", ip, port, ifName)
 		d.peers.AddOrUpdate(pubKey, ip, port)
 
+		// Cooldown: don't trigger onPeer for same peer more than once per 2 minutes
+		d.cdMu.Lock()
+		last, seen := d.cooldown[pubKey]
+		if seen && time.Since(last) < 2*time.Minute {
+			d.cdMu.Unlock()
+			continue
+		}
+		d.cooldown[pubKey] = time.Now()
+		d.cdMu.Unlock()
+
+		log.Printf("[Discovery] New peer %s:%d via %s", ip, port, ifName)
 		if d.onPeer != nil {
 			d.onPeer(pubKey, ip, port)
 		}
