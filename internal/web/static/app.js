@@ -1699,17 +1699,22 @@
   }
 
   function startPolling() {
-    // Fast poll for messages (2s), slower for status/online/unread (5s)
+    // Fast poll for active chat (1s) — near-realtime feel
     setInterval(() => {
       if (currentContact) loadMessages();
       if (currentGroup) loadGroupMessages();
       if (currentChannel) loadChannelPosts();
-    }, 2000);
+    }, 1000);
+    // Medium poll for sidebar (3s) — unread badges, contact list
     setInterval(() => {
-      loadContacts().then(() => loadGroups()).then(() => loadChannels()).then(() => updateUnreadCounts());
+      updateUnreadCounts();
+    }, 3000);
+    // Slow poll for everything else (8s) — status, online, groups
+    setInterval(() => {
+      loadContacts().then(() => loadGroups()).then(() => loadChannels());
       loadStatus();
       loadOnline();
-    }, 5000);
+    }, 8000);
   }
 
   function esc(s) {
