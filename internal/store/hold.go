@@ -23,11 +23,12 @@ const (
 
 // holdMeta tracks propagation metadata per message.
 type holdMeta struct {
-	HopTTL       int   `json:"hop_ttl"`       // Remaining hops
-	ForwardCount int   `json:"forward_count"` // Times we forwarded this message
-	StoredAt     int64 `json:"stored_at"`     // Unix timestamp when first stored
-	Exhausted    bool  `json:"exhausted"`     // Forward limit reached
-	MorgueAt     int64 `json:"morgue_at"`     // Unix timestamp when moved to morgue (0 = not in morgue)
+	HopTTL       int   `json:"hop_ttl"`        // Remaining hops
+	ForwardCount int   `json:"forward_count"`  // Times we forwarded this message
+	StoredAt     int64 `json:"stored_at"`      // Unix timestamp when first stored on THIS device
+	MsgTimestamp int64 `json:"msg_timestamp"`  // Unix timestamp from message creation (author's clock)
+	Exhausted    bool  `json:"exhausted"`      // Forward limit reached
+	MorgueAt     int64 `json:"morgue_at"`      // Unix timestamp when moved to morgue (0 = not in morgue)
 }
 
 // Hold is the store-and-forward "cargo hold" for messages in transit.
@@ -81,6 +82,7 @@ func (h *Hold) StoreWithTTL(msg *message.Message, hopTTL int) error {
 		HopTTL:       hopTTL,
 		ForwardCount: 0,
 		StoredAt:     time.Now().Unix(),
+		MsgTimestamp: msg.Timestamp, // Author's creation time — used for absolute kill switch
 	}
 	h.saveMeta()
 	return nil
@@ -246,8 +248,13 @@ func (h *Hold) cleanupLocked() {
 	var toDelete []string
 
 	for idHex, meta := range h.meta {
-		// Kill switch: absolute TTL (30 days)
-		if now-meta.StoredAt > int64(KillSwitchTTL.Seconds()) {
+		// Kill switch: absolute TTL from message CREATION time (30 days)
+		// Use StoredAt as fallback, but prefer message timestamp if available
+		originTime := meta.StoredAt
+		if meta.MsgTimestamp > 0 {
+			originTime = meta.MsgTimestamp
+		}
+		if now-originTime > int64(KillSwitchTTL.Seconds()) {
 			toDelete = append(toDelete, idHex)
 			continue
 		}
