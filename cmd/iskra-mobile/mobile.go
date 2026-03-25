@@ -28,6 +28,7 @@ var (
 	mobileInbox    *store.Inbox
 	mobileGroups   *store.Groups
 	mobileChannels *store.Channels
+	mobileAPI      *web.API
 	mobileDataDir  string
 	autoSaveStop chan struct{}
 )
@@ -145,6 +146,15 @@ func Start(dataDir string, port int) int {
 
 	transport.SetOnMessage(handleMessage)
 	relayClient.SetOnMessage(handleMessage)
+	relayClient.SetOnSyncRequest(func() {
+		msgs, _ := hold.GetForSync()
+		for _, msg := range msgs {
+			relayClient.BroadcastMessage(msg)
+		}
+		if len(msgs) > 0 {
+			log.Printf("[Sync] Broadcast %d hold messages via relay", len(msgs))
+		}
+	})
 	relayClient.Start()
 
 	// LAN discovery
@@ -170,6 +180,7 @@ func Start(dataDir string, port int) int {
 	mobileInbox = inbox
 	mobileGroups = groups
 	mobileChannels = channels
+	mobileAPI = api
 	mobileDataDir = dataDir
 
 	// Start auto-save goroutine (every 10 seconds)
@@ -186,8 +197,8 @@ func Start(dataDir string, port int) int {
 			select {
 			case <-ticker.C:
 				serverMu.Lock()
-				if mobileInbox != nil && mobileDataDir != "" {
-					if err := mobileInbox.Save(filepath.Join(mobileDataDir, "inbox.json")); err != nil {
+				if mobileInbox != nil && mobileAPI != nil {
+					if err := mobileInbox.Save(mobileAPI.InboxFilePath()); err != nil {
 						log.Printf("[Mobile] Auto-save inbox error: %v", err)
 					}
 				}
@@ -234,8 +245,8 @@ func Stop() {
 	}
 
 	// Save data before shutdown
-	if mobileInbox != nil && mobileDataDir != "" {
-		mobileInbox.Save(filepath.Join(mobileDataDir, "inbox.json"))
+	if mobileInbox != nil && mobileAPI != nil {
+		mobileInbox.Save(mobileAPI.InboxFilePath())
 		log.Println("[Mobile] Inbox saved on stop")
 	}
 	if mobileGroups != nil {
@@ -255,6 +266,7 @@ func Stop() {
 	mobileInbox = nil
 	mobileGroups = nil
 	mobileChannels = nil
+	mobileAPI = nil
 	mobileDataDir = ""
 }
 
