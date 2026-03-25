@@ -146,7 +146,12 @@ func Start(dataDir string, port int) int {
 
 	transport.SetOnMessage(handleMessage)
 	relayClient.SetOnMessage(handleMessage)
+	var lastSyncTime time.Time
 	relayClient.SetOnSyncRequest(func() {
+		if time.Since(lastSyncTime) < 30*time.Second {
+			return
+		}
+		lastSyncTime = time.Now()
 		msgs, _ := hold.GetForSync()
 		for _, msg := range msgs {
 			relayClient.BroadcastMessage(msg)
