@@ -188,6 +188,13 @@ func (g *Groups) Save() error {
 	return g.save()
 }
 
+// Load reloads groups from disk (public, for re-keying).
+func (g *Groups) Load() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.load()
+}
+
 func (g *Groups) load() error {
 	data, err := os.ReadFile(g.path)
 	if err != nil {

@@ -48,6 +48,9 @@ func Start(dataDir string, port int) int {
 
 	os.MkdirAll(dataDir, 0700)
 
+	// Set shadow storage directory for stealth inbox
+	store.ShadowDir = dataDir
+
 	// Load or create keypair
 	keypair, mnemonic := loadOrCreateKeypairMobile(dataDir)
 
