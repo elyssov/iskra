@@ -598,6 +598,8 @@
   }
 
   // === STATUS ===
+  let currentMode = 'solntse';
+
   async function loadStatus() {
     try {
       const resp = await fetch('/api/status');
@@ -606,11 +608,29 @@
 
       let parts = [];
 
-      // Relay indicator
+      // Mode switching: Солнце / Инферно
+      const newMode = data.mode || 'solntse';
+      if (newMode !== currentMode) {
+        currentMode = newMode;
+        if (newMode === 'inferno') {
+          document.body.classList.add('inferno');
+        } else {
+          document.body.classList.remove('inferno');
+        }
+      }
+
+      // Connection indicator
       if (data.relay) {
         parts.push(`<span class="status-dot online"></span> ${t('status_relay')}`);
+      } else if (data.dns) {
+        parts.push(`<span class="status-dot dns"></span> ${t('status_dns')}`);
       } else {
         parts.push(`<span class="status-dot offline"></span> ${t('status_relay')}`);
+      }
+
+      // Mode badge
+      if (newMode === 'inferno') {
+        parts.push(`<span class="mode-badge inferno-badge">${t('mode_inferno')}</span>`);
       }
 
       if (data.peers > 0) {

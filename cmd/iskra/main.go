@@ -30,6 +30,8 @@ func main() {
 	meshPort := flag.Int("mesh-port", 0, "Mesh transport port (0 = random)")
 	relayURL := flag.String("relay", "wss://iskra-relay.onrender.com/ws", "Relay server URL (wss://host/ws)")
 	udpRelay := flag.String("udp-relay", "", "UDP relay address host:port (fallback when WS relay blocked)")
+	dnsRelayDomain := flag.String("dns-domain", "", "DNS tunnel relay domain (e.g. tun.iskra-dns.example.com)")
+	dnsRelayServer := flag.String("dns-server", "", "DNS tunnel relay server IP:port (e.g. 1.2.3.4:5353)")
 	restore := flag.String("restore", "", "Restore from mnemonic (24 words, space-separated)")
 	flag.Parse()
 
@@ -115,6 +117,7 @@ func main() {
 	// Initialize relay if specified
 	var relayClient *mesh.RelayClient
 	var udpTransport *mesh.UDPTransport
+	var dnsTransport *mesh.DNSTransport
 	if *relayURL != "" {
 		relayClient = mesh.NewRelayClient(*relayURL, keypair.Ed25519Pub, keypair.X25519Pub)
 		mode = "relay"
@@ -129,6 +132,11 @@ func main() {
 		}
 	}
 
+	// Initialize DNS tunnel transport (last-resort fallback when everything is blocked)
+	if *dnsRelayDomain != "" && *dnsRelayServer != "" {
+		dnsTransport = mesh.NewDNSTransport(keypair.Ed25519Pub, *dnsRelayDomain, *dnsRelayServer)
+	}
+
 	unlockCh := make(chan struct{})
 	if !locked {
 		close(unlockCh) // already unlocked
@@ -136,23 +144,24 @@ func main() {
 
 	// Initialize API
 	api := &web.API{
-		Keypair:     keypair,
-		Mnemonic:    mnemonic,
-		Contacts:    contacts,
-		Inbox:       inbox,
-		Hold:        hold,
-		Bloom:       bloom,
-		Peers:       peers,
-		Transport:   transport,
-		RelayClient: relayClient,
-		Groups:      groups,
-		Channels:    channels,
-		FileMgr:     filetransfer.NewManager(filepath.Join(*dataDir, "files")),
-		Mode:        mode,
-		DataDir:     *dataDir,
-		Seed:        seed,
-		Locked:      locked,
-		UnlockCh:    unlockCh,
+		Keypair:      keypair,
+		Mnemonic:     mnemonic,
+		Contacts:     contacts,
+		Inbox:        inbox,
+		Hold:         hold,
+		Bloom:        bloom,
+		Peers:        peers,
+		Transport:    transport,
+		RelayClient:  relayClient,
+		DNSTransport: dnsTransport,
+		Groups:       groups,
+		Channels:     channels,
+		FileMgr:      filetransfer.NewManager(filepath.Join(*dataDir, "files")),
+		Mode:         mode,
+		DataDir:      *dataDir,
+		Seed:         seed,
+		Locked:       locked,
+		UnlockCh:     unlockCh,
 	}
 
 	// Message handler (shared between transport and relay)
@@ -204,6 +213,14 @@ func main() {
 			log.Printf("[UDP] Fallback transport active")
 		}
 	}
+	if dnsTransport != nil {
+		dnsTransport.SetOnMessage(handleMessage)
+		if err := dnsTransport.Start(); err != nil {
+			log.Printf("[DNS] Start error: %v", err)
+		} else {
+			log.Printf("[DNS] Tunnel transport active via %s", *dnsRelayDomain)
+		}
+	}
 
 	// Start LAN discovery
 	discovery := mesh.NewDiscovery(keypair.Ed25519Pub, transport.Port(), peers)
@@ -235,6 +252,9 @@ func main() {
 	}
 	if *udpRelay != "" {
 		fmt.Printf("   UDP:   %s (обфускация)\n", *udpRelay)
+	}
+	if *dnsRelayDomain != "" {
+		fmt.Printf("   DNS:   %s через %s (туннель)\n", *dnsRelayDomain, *dnsRelayServer)
 	}
 	fmt.Printf("   Режим: %s\n", mode)
 	if locked {
@@ -270,6 +290,9 @@ func main() {
 	}
 	if udpTransport != nil {
 		udpTransport.Stop()
+	}
+	if dnsTransport != nil {
+		dnsTransport.Stop()
 	}
 	server.Stop()
 	fmt.Println("Готово.")

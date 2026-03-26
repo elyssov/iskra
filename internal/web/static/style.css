@@ -1502,3 +1502,209 @@ body {
 @media (max-width: 360px) {
   .mnemonic-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ============================
+   MODE BADGES & DNS STATUS
+   ============================ */
+.mode-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.inferno-badge {
+  background: rgba(255,255,255,0.2);
+  color: #fff;
+  animation: infernoPulse 2s ease-in-out infinite;
+}
+@keyframes infernoPulse {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 1; text-shadow: 0 0 6px rgba(255,200,100,0.5); }
+}
+
+.status-dot.dns {
+  background: #F59E0B;
+  box-shadow: 0 0 8px rgba(245,158,11,0.6);
+  animation: dnsPulse 1.5s ease-in-out infinite;
+}
+@keyframes dnsPulse {
+  0%, 100% { box-shadow: 0 0 4px rgba(245,158,11,0.4); }
+  50% { box-shadow: 0 0 12px rgba(245,158,11,0.9); }
+}
+
+/* ============================
+   INFERNO THEME (Инферно)
+   Activates when relay is down, DNS tunnel is active.
+   Alarming but beautiful — warm red-white.
+   ============================ */
+body.inferno {
+  --accent: #C62828;
+  --accent-dark: #B71C1C;
+  --accent-deeper: #8E0000;
+  --accent-light: rgba(198,40,40,0.06);
+  --accent-glow: rgba(198,40,40,0.12);
+  --bg: #FFF8F6;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #FFF0ED;
+  --bg-chat: #FFF5F3;
+  --surface-hover: #FFF0ED;
+  --border: rgba(198,40,40,0.08);
+  --shadow-sm: 0 1px 2px rgba(198,40,40,0.04);
+  --shadow: 0 1px 4px rgba(198,40,40,0.06);
+  --shadow-lg: 0 4px 12px rgba(198,40,40,0.08);
+}
+
+/* Header gradient — warm ember */
+body.inferno #header {
+  background: linear-gradient(135deg, #C62828 0%, #D32F2F 60%, #E53935 100%);
+}
+
+/* Sidebar border glow */
+body.inferno #sidebar {
+  box-shadow: 2px 0 16px rgba(198,40,40,0.08);
+}
+
+/* Active contact */
+body.inferno .contact-item.active {
+  background: rgba(198,40,40,0.06);
+  border-left-color: #C62828;
+}
+
+/* Outgoing messages — deep warm red */
+body.inferno .message.out {
+  background: linear-gradient(135deg, #C62828, #D32F2F);
+}
+
+/* Unread badge */
+body.inferno .unread-badge {
+  background: linear-gradient(135deg, #C62828, #B71C1C);
+  box-shadow: 0 2px 8px rgba(198,40,40,0.3);
+}
+
+/* Buttons */
+body.inferno .btn-primary {
+  background: linear-gradient(135deg, #C62828, #B71C1C);
+  box-shadow: 0 2px 8px rgba(198,40,40,0.25);
+}
+body.inferno .btn-primary:hover {
+  box-shadow: 0 4px 20px rgba(198,40,40,0.35);
+}
+
+/* Footer buttons */
+body.inferno #sidebar-footer button {
+  border-color: #C62828;
+  color: #C62828;
+}
+body.inferno #sidebar-footer button:hover {
+  background: #C62828;
+  color: #fff;
+}
+
+/* Status pulse in inferno */
+body.inferno .status-dot.online {
+  background: #F59E0B;
+  box-shadow: 0 0 8px rgba(245,158,11,0.6);
+}
+
+/* Chat background — subtle warm radials */
+body.inferno #messages {
+  background-image:
+    radial-gradient(circle at 15% 85%, rgba(198,40,40,0.03) 0%, transparent 50%),
+    radial-gradient(circle at 85% 15%, rgba(245,158,11,0.03) 0%, transparent 50%);
+}
+
+/* Reply quote */
+body.inferno .message-reply-quote {
+  background: rgba(198,40,40,0.08);
+  border-left-color: #C62828;
+}
+body.inferno .message-reply-quote:hover { background: rgba(198,40,40,0.15); }
+body.inferno .reply-quote-from { color: #B71C1C; }
+body.inferno .reply-preview { border-left-color: #C62828; }
+body.inferno .reply-preview-sender { color: #C62828; }
+
+/* Message highlight */
+body.inferno .message-highlight {
+  animation: msgHighlightInferno 1.5s ease;
+}
+@keyframes msgHighlightInferno {
+  0%, 20% { box-shadow: 0 0 0 3px rgba(198,40,40,0.4); }
+  100% { box-shadow: none; }
+}
+
+/* Channel / online badges */
+body.inferno .channel-owner-badge,
+body.inferno .online-contact-badge {
+  background: #C62828;
+}
+
+/* Chat header E2E badge keeps green (trust indicator) */
+
+/* Onboarding gradient */
+body.inferno #onboarding {
+  background: linear-gradient(135deg, #FFF0ED 0%, #FFE0DB 40%, #FFF5F3 100%);
+}
+body.inferno .onboarding-container h1 {
+  background: linear-gradient(135deg, #B71C1C, #E53935);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* PIN screen stays dark — no change needed */
+
+/* Hover on action buttons */
+body.inferno .chat-action-btn:hover {
+  background: rgba(198,40,40,0.07);
+  border-color: #C62828;
+  color: #C62828;
+}
+
+/* Online item hover */
+body.inferno .online-item:hover { background: rgba(198,40,40,0.06); }
+body.inferno .online-item.online-known { background: rgba(198,40,40,0.04); }
+body.inferno .online-item.online-known:hover { background: rgba(198,40,40,0.1); }
+
+/* Smooth transition between modes */
+#header,
+#sidebar,
+#sidebar-footer button,
+.contact-item,
+.unread-badge,
+.message.out,
+.btn-primary,
+.channel-owner-badge,
+.online-contact-badge,
+.chat-action-btn,
+.message-reply-quote,
+.reply-preview,
+#messages {
+  transition: background 0.6s ease, background-color 0.6s ease,
+              border-color 0.6s ease, box-shadow 0.6s ease, color 0.3s ease;
+}
+
+/* Premium polish: subtle improvements to both themes */
+#header {
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 100%);
+  background-blend-mode: overlay;
+}
+
+.message.out {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+#msg-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+/* Glassmorphism on modals */
+.modal-content {
+  backdrop-filter: blur(20px);
+  background: rgba(255,255,255,0.92);
+}
+body.inferno .modal-content {
+  background: rgba(255,248,246,0.95);
+}

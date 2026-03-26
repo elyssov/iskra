@@ -28,25 +28,26 @@ const BuildNumber = "19"
 
 // API handles REST API requests.
 type API struct {
-	Keypair     *identity.Keypair
-	Mnemonic    []string
-	Contacts    *store.Contacts
-	Inbox       *store.Inbox
-	Hold        *store.Hold
-	Bloom       *store.SimpleBloom
-	Peers       *mesh.PeerList
-	Transport   *mesh.Transport
-	RelayClient *mesh.RelayClient
-	Groups      *store.Groups
-	Channels    *store.Channels
-	FileMgr     *filetransfer.Manager
-	Mode        string // "lan", "relay", "offline"
-	DataDir     string // For restore functionality
-	InboxPath   string // Dynamic path to inbox file (per-identity)
-	Seed        [32]byte
-	Locked      bool     // true if PIN required and not yet verified
-	VaultKey    *[32]byte
-	UnlockCh    chan struct{} // closed when PIN verified / setup complete
+	Keypair      *identity.Keypair
+	Mnemonic     []string
+	Contacts     *store.Contacts
+	Inbox        *store.Inbox
+	Hold         *store.Hold
+	Bloom        *store.SimpleBloom
+	Peers        *mesh.PeerList
+	Transport    *mesh.Transport
+	RelayClient  *mesh.RelayClient
+	DNSTransport *mesh.DNSTransport
+	Groups       *store.Groups
+	Channels     *store.Channels
+	FileMgr      *filetransfer.Manager
+	Mode         string // "lan", "relay", "offline"
+	DataDir      string // For restore functionality
+	InboxPath    string // Dynamic path to inbox file (per-identity)
+	Seed         [32]byte
+	Locked       bool     // true if PIN required and not yet verified
+	VaultKey     *[32]byte
+	UnlockCh     chan struct{} // closed when PIN verified / setup complete
 }
 
 // InboxFilePath returns the per-identity inbox file path.
@@ -75,9 +76,10 @@ type messageRequest struct {
 }
 
 type statusResponse struct {
-	Mode     string `json:"mode"`
+	Mode     string `json:"mode"` // "solntse", "inferno", "lan", "offline"
 	Peers    int    `json:"peers"`
 	Relay    bool   `json:"relay"`
+	DNS      bool   `json:"dns"`
 	HoldSize int    `json:"holdSize"`
 	Version  string `json:"version"`
 	Build    string `json:"build"`
@@ -223,8 +225,15 @@ func (a *API) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			} else {
 				log.Printf("[Send] Sent via relay, recipientID=%x", msg.RecipientID[:])
 			}
+		} else if a.DNSTransport != nil && a.DNSTransport.IsConnected() {
+			// Fallback: DNS tunnel when relay is down
+			if err := a.DNSTransport.SendMessage(msg); err != nil {
+				log.Printf("[Send] DNS tunnel send failed: %v", err)
+			} else {
+				log.Printf("[Send] Sent via DNS tunnel, recipientID=%x", msg.RecipientID[:])
+			}
 		} else {
-			log.Printf("[Send] Relay not connected, message stored in hold")
+			log.Printf("[Send] No relay/DNS connected, message stored in hold")
 		}
 
 		writeJSON(w, map[string]string{
@@ -244,19 +253,24 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mode := a.Mode
-	if a.RelayClient != nil && a.RelayClient.IsConnected() {
-		mode = "relay"
+	relayConnected := a.RelayClient != nil && a.RelayClient.IsConnected()
+	dnsConnected := a.DNSTransport != nil && a.DNSTransport.IsConnected()
+
+	// Mode logic: relay up = solntse, relay down + dns up = inferno, else lan/offline
+	mode := "offline"
+	if relayConnected {
+		mode = "solntse"
+	} else if dnsConnected {
+		mode = "inferno"
 	} else if a.Peers.Count() > 0 {
 		mode = "lan"
 	}
-
-	relayConnected := a.RelayClient != nil && a.RelayClient.IsConnected()
 
 	resp := statusResponse{
 		Mode:     mode,
 		Peers:    a.Peers.Count(),
 		Relay:    relayConnected,
+		DNS:      dnsConnected,
 		HoldSize: a.Hold.Count(),
 		Version:  "0.6.0-alpha",
 		Build:    BuildNumber,
