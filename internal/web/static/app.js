@@ -1661,7 +1661,7 @@
 
   // === UNREAD TRACKING ===
   let lastMessages = {}; // key -> last message preview
-  let prevTotalUnread = 0; // for notification sound
+  let prevTotalUnread = -1; // -1 = first check, will ping if any unread
 
   // Notification ping — pure Web Audio, no files needed
   function playPing() {
@@ -1727,6 +1727,8 @@
         body: JSON.stringify({lastRead})
       });
       const data = await resp.json();
+      const oldCounts = JSON.stringify(unreadCounts);
+      const oldMsgs = JSON.stringify(lastMessages);
       unreadCounts = data.counts || {};
       lastMessages = data.lastMsg || {};
       // Update lastActivity from server timestamps for sorting
@@ -1739,6 +1741,10 @@
         playPing();
       }
       prevTotalUnread = totalUnread;
+      // Force re-render if anything changed
+      if (JSON.stringify(unreadCounts) !== oldCounts || JSON.stringify(lastMessages) !== oldMsgs) {
+        lastRenderedHTML = '';
+      }
       renderContacts();
     } catch(e) { /* ignore */ }
   }
@@ -1751,10 +1757,10 @@
       if (currentGroup) loadGroupMessages();
       if (currentChannel) loadChannelPosts();
     }, 2000);
-    // Sidebar: 5s — unread + contacts
+    // Sidebar: 2s — unread badges (lightweight POST)
     setInterval(() => {
       updateUnreadCounts();
-    }, 5000);
+    }, 2000);
     // Status/online: 10s
     setInterval(() => {
       loadContacts().then(() => loadGroups()).then(() => loadChannels());
