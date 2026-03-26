@@ -489,7 +489,10 @@
         if (contactEl) {
           const uid = contactEl.dataset.uid;
           let contact = contacts.find(c => c.user_id === uid);
-          if (!contact) contact = {user_id: uid, name: uid.substring(0, 12) + '...'};
+          if (!contact) {
+            const onlinePeer = (typeof onlinePeers !== 'undefined') ? onlinePeers.find(p => p.userID === uid) : null;
+            contact = {user_id: uid, name: onlinePeer ? onlinePeer.alias : uid.substring(0, 8)};
+          }
           openChat(contact);
           return;
         }
@@ -517,11 +520,14 @@
     if (hasGroups) groups.forEach(g => items.push({type: 'group', data: g, ts: lastActivity['g:' + g.id] || 0}));
     if (hasContacts) contacts.forEach(c => items.push({type: 'contact', data: c, ts: lastActivity[c.user_id] || 0}));
 
-    // Add unknown senders (have messages but not in contacts) — shows as "Unknown: {id}"
+    // Add unknown senders (have messages but not in contacts)
     const knownUIDs = new Set((contacts || []).map(c => c.user_id));
     for (const uid of Object.keys(unreadCounts)) {
       if (!uid.startsWith('g:') && !knownUIDs.has(uid)) {
-        items.push({type: 'contact', data: {user_id: uid, name: uid.substring(0, 12) + '...'}, ts: lastActivity[uid] || Date.now()/1000});
+        // Try to find name from online peers, otherwise use short ID
+        const onlinePeer = (typeof onlinePeers !== 'undefined') ? onlinePeers.find(p => p.userID === uid) : null;
+        const name = onlinePeer ? onlinePeer.alias : (uid.substring(0, 8) + '...');
+        items.push({type: 'contact', data: {user_id: uid, name: name}, ts: lastActivity[uid] || Date.now()/1000});
       }
     }
 
