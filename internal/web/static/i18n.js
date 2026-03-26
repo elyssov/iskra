@@ -58,6 +58,11 @@ const I18N = {
     status_relay: 'relay',
     status_nearby: 'рядом',
     status_hold: 'в трюме',
+    status_dns: 'DNS-туннель',
+    mode_solntse: 'Солнце',
+    mode_inferno: 'Инферно',
+    mode_lan: 'LAN',
+    mode_offline: 'нет связи',
 
     // Online
     online_now: 'В сети сейчас',
@@ -217,6 +222,11 @@ const I18N = {
     status_relay: 'relay',
     status_nearby: 'nearby',
     status_hold: 'in hold',
+    status_dns: 'DNS tunnel',
+    mode_solntse: 'Sun',
+    mode_inferno: 'Inferno',
+    mode_lan: 'LAN',
+    mode_offline: 'offline',
 
     // Online
     online_now: 'Online now',
