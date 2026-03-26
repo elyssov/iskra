@@ -476,6 +476,7 @@
     } catch(e) {}
   }
 
+  let _lastContactsHTML = '';
   function renderContacts() {
     const list = document.getElementById('contacts-list');
     const hasContacts = contacts && contacts.length > 0;
@@ -1708,22 +1709,23 @@
   }
 
   function startPolling() {
-    // Fast poll for active chat (1s) — near-realtime feel
+    // Messages: 2s when chat open, skip if typing
     setInterval(() => {
+      if (document.getElementById('msg-input') === document.activeElement) return; // don't poll while typing
       if (currentContact) loadMessages();
       if (currentGroup) loadGroupMessages();
       if (currentChannel) loadChannelPosts();
-    }, 1000);
-    // Medium poll for sidebar (3s) — unread badges, contact list
+    }, 2000);
+    // Sidebar: 5s — unread + contacts
     setInterval(() => {
       updateUnreadCounts();
-    }, 3000);
-    // Slow poll for everything else (8s) — status, online, groups
+    }, 5000);
+    // Status/online: 10s
     setInterval(() => {
       loadContacts().then(() => loadGroups()).then(() => loadChannels());
       loadStatus();
       loadOnline();
-    }, 8000);
+    }, 10000);
   }
 
   function esc(s) {
