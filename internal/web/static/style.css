@@ -783,13 +783,13 @@ body {
 #sidebar-footer button {
   flex: 1;
   padding: 10px 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--accent);
   background: var(--surface);
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
   display: flex; align-items: center; justify-content: center;
   gap: 4px;
   transition: all var(--transition);
@@ -797,11 +797,9 @@ body {
   overflow: hidden;
 }
 #sidebar-footer button:hover {
-  background: var(--accent-light);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: var(--accent);
+  color: #fff;
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(59,130,246,0.12);
 }
 #sidebar-footer button:active { transform: scale(0.97); }
 .btn-icon { font-size: 14px; }
