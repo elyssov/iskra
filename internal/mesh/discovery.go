@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
@@ -69,7 +70,8 @@ func (d *Discovery) Stop() {
 	close(d.stop)
 }
 
-// multicastInterfaces returns all active interfaces that support multicast.
+// multicastInterfaces returns all active physical interfaces that support multicast.
+// Skips virtual adapters (VMware, VPN, Docker, Hyper-V, etc.)
 func multicastInterfaces() []net.Interface {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -84,6 +86,16 @@ func multicastInterfaces() []net.Interface {
 			continue
 		}
 		if iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		// Skip virtual adapters
+		name := strings.ToLower(iface.Name)
+		if strings.Contains(name, "vmware") || strings.Contains(name, "vmnet") ||
+			strings.Contains(name, "virtualbox") || strings.Contains(name, "vbox") ||
+			strings.Contains(name, "docker") || strings.Contains(name, "br-") ||
+			strings.Contains(name, "hyper-v") || strings.Contains(name, "vpn") ||
+			strings.Contains(name, "tap") || strings.Contains(name, "tun") ||
+			strings.Contains(name, "virbr") || strings.Contains(name, "veth") {
 			continue
 		}
 		// Must have at least one IPv4 address
