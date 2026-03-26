@@ -15,6 +15,7 @@ import (
 	"time"
 
 	iskraCrypto "github.com/iskra-messenger/iskra/internal/crypto"
+	"github.com/iskra-messenger/iskra/internal/filetransfer"
 	"github.com/iskra-messenger/iskra/internal/identity"
 	"github.com/iskra-messenger/iskra/internal/message"
 	"github.com/iskra-messenger/iskra/internal/mesh"
@@ -23,7 +24,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "18.5"
+const BuildNumber = "19"
 
 // API handles REST API requests.
 type API struct {
@@ -38,6 +39,7 @@ type API struct {
 	RelayClient *mesh.RelayClient
 	Groups      *store.Groups
 	Channels    *store.Channels
+	FileMgr     *filetransfer.Manager
 	Mode        string // "lan", "relay", "offline"
 	DataDir     string // For restore functionality
 	InboxPath   string // Dynamic path to inbox file (per-identity)
@@ -407,6 +409,25 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 				if err := json.Unmarshal(plaintext, &group); err == nil {
 					log.Printf("[Group] Received invite for group %q (%s)", group.Name, group.ID[:8])
 					a.Groups.AddByInvite(group)
+				}
+			}
+
+		case message.ContentFileChunk:
+			if a.FileMgr != nil {
+				senderID := identity.UserID(msg.AuthorPub)
+				filePath, complete := a.FileMgr.ReceiveChunk(plaintext)
+				if complete {
+					log.Printf("[File] Received complete file: %s from %s", filePath, senderID[:8])
+					a.Inbox.AddMessage(senderID, store.InboxMessage{
+						ID:        hex.EncodeToString(msg.ID[:]),
+						From:      senderID,
+						Text:      fmt.Sprintf("[File received: %s]", filepath.Base(filePath)),
+						Timestamp: msg.Timestamp,
+						Status:    "delivered",
+						Outgoing:  false,
+					})
+					a.Inbox.Save(a.InboxFilePath())
+					a.Contacts.UpdateLastSeen(senderID, time.Now().Unix())
 				}
 			}
 		}
@@ -1426,6 +1447,106 @@ func (a *API) HandleMasterCheck(w http.ResponseWriter, r *http.Request) {
 		"edPub":     edPub,
 		"x25519Pub": x25519,
 	})
+}
+
+// ─── File transfer (chunked encrypted) ──────────────────────────────
+
+// HandleSendFile accepts a multipart file upload and sends it as chunked messages.
+func (a *API) HandleSendFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+
+	// Parse recipient from URL
+	userID := strings.TrimPrefix(r.URL.Path, "/api/file/send/")
+	if userID == "" {
+		http.Error(w, "recipient required", 400)
+		return
+	}
+
+	// Limit body to 10MB + overhead
+	r.Body = http.MaxBytesReader(w, r.Body, filetransfer.MaxFileSize+1024*1024)
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file required: "+err.Error(), 400)
+		return
+	}
+	defer file.Close()
+
+	// Save to temp file
+	tmpDir := filepath.Join(a.DataDir, "tmp")
+	os.MkdirAll(tmpDir, 0700)
+	tmpPath := filepath.Join(tmpDir, header.Filename)
+	tmpFile, err := os.Create(tmpPath)
+	if err != nil {
+		http.Error(w, "temp file error", 500)
+		return
+	}
+	io.Copy(tmpFile, file)
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	// Prepare chunks
+	payloads, err := filetransfer.PrepareChunks(tmpPath)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+
+	// Get recipient keys
+	contact := a.Contacts.GetByUserID(userID)
+	if contact == nil {
+		http.Error(w, "contact not found", 404)
+		return
+	}
+	edPubBytes, err := identity.FromBase58(contact.PubKey)
+	if err != nil || len(edPubBytes) != 32 {
+		http.Error(w, "invalid contact key", 400)
+		return
+	}
+	var recipientKeys message.RecipientKeys
+	copy(recipientKeys.Ed25519Pub[:], edPubBytes)
+	if contact.X25519Pub != "" {
+		x25519Bytes, _ := identity.FromBase58(contact.X25519Pub)
+		if len(x25519Bytes) == 32 {
+			copy(recipientKeys.X25519Pub[:], x25519Bytes)
+		}
+	}
+
+	// Send each chunk as a separate encrypted message
+	sent := 0
+	for _, payload := range payloads {
+		msg, err := message.NewWithType(a.Keypair, recipientKeys, message.ContentFileChunk, payload)
+		if err != nil {
+			continue
+		}
+		a.Bloom.Add(msg.ID)
+		a.Hold.StoreWithTTL(msg, filetransfer.ChunkHopTTL)
+
+		if a.RelayClient != nil && a.RelayClient.IsConnected() {
+			a.RelayClient.SendMessage(msg)
+		}
+		if a.Transport != nil {
+			a.Transport.BroadcastMessage(msg)
+		}
+		sent++
+	}
+
+	// Store in inbox as file message
+	a.Inbox.AddMessage(userID, store.InboxMessage{
+		ID:        fmt.Sprintf("file-%d", time.Now().UnixNano()),
+		From:      identity.UserID(a.Keypair.Ed25519Pub),
+		Text:      fmt.Sprintf("[File: %s] (%d chunks)", header.Filename, sent),
+		Timestamp: time.Now().Unix(),
+		Status:    "sent",
+		Outgoing:  true,
+	})
+	a.Inbox.Save(a.InboxFilePath())
+
+	log.Printf("[File] Sent %q to %s: %d chunks", header.Filename, userID[:8], sent)
+	writeJSON(w, map[string]interface{}{"ok": true, "chunks": sent, "filename": header.Filename})
 }
 
 // ─── Mesh peer injection (WiFi Direct → TCP sync) ──────────────────

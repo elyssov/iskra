@@ -1310,6 +1310,34 @@
       this.style.height = Math.min(this.scrollHeight, 120) + 'px';
     });
 
+    // File attach
+    document.getElementById('btn-attach').addEventListener('click', () => {
+      document.getElementById('file-input').click();
+    });
+    document.getElementById('file-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 10 * 1024 * 1024) {
+        alert('Max 10 MB');
+        return;
+      }
+      const uid = currentContact ? currentContact.user_id : null;
+      if (!uid) { alert('Select a contact first'); return; }
+      const form = new FormData();
+      form.append('file', file);
+      try {
+        const btn = document.getElementById('btn-attach');
+        btn.style.opacity = '1';
+        btn.textContent = '...';
+        const resp = await fetch('/api/file/send/' + uid, {method: 'POST', body: form});
+        const data = await resp.json();
+        btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>';
+        btn.style.opacity = '0.5';
+        if (data.ok) loadMessages();
+      } catch(err) { alert('Send failed'); }
+      e.target.value = '';
+    });
+
     // Back (mobile)
     document.getElementById('btn-back').addEventListener('click', () => {
       document.getElementById('app').classList.remove('chat-open');

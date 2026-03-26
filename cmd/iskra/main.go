@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/iskra-messenger/iskra/internal/filetransfer"
 	"github.com/iskra-messenger/iskra/internal/firewall"
 	"github.com/iskra-messenger/iskra/internal/identity"
 	"github.com/iskra-messenger/iskra/internal/mesh"
@@ -146,6 +147,7 @@ func main() {
 		RelayClient: relayClient,
 		Groups:      groups,
 		Channels:    channels,
+		FileMgr:     filetransfer.NewManager(filepath.Join(*dataDir, "files")),
 		Mode:        mode,
 		DataDir:     *dataDir,
 		Seed:        seed,
