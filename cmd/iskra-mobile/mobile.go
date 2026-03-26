@@ -13,6 +13,7 @@ import (
 	// gomobile bind requires x/mobile/bind in go.mod
 	_ "golang.org/x/mobile/bind"
 
+	"github.com/iskra-messenger/iskra/internal/filetransfer"
 	"github.com/iskra-messenger/iskra/internal/identity"
 	"github.com/iskra-messenger/iskra/internal/mesh"
 	"github.com/iskra-messenger/iskra/internal/message"
@@ -125,6 +126,7 @@ func Start(dataDir string, port int) int {
 		RelayClient: relayClient,
 		Groups:      groups,
 		Channels:    channels,
+		FileMgr:     filetransfer.NewManager(filepath.Join(dataDir, "files")),
 		Mode:        mode,
 		DataDir:     dataDir,
 		Seed:        seed,

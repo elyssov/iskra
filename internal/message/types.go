@@ -8,6 +8,7 @@ const (
 	ContentGroupText       uint8 = 3
 	ContentGroupInvite     uint8 = 4
 	ContentChannelPost     uint8 = 5
+	ContentFileChunk       uint8 = 6
 	ContentAppUpdate       uint8 = 255
 )
 
