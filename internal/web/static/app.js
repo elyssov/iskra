@@ -477,8 +477,29 @@
   }
 
   let _lastContactsHTML = '';
+  let _contactsListDelegated = false;
   function renderContacts() {
     const list = document.getElementById('contacts-list');
+
+    // Event delegation — set once, works for all future innerHTML updates
+    if (!_contactsListDelegated) {
+      _contactsListDelegated = true;
+      list.addEventListener('click', (e) => {
+        const contactEl = e.target.closest('.contact-item:not(.group-item)');
+        if (contactEl) {
+          const uid = contactEl.dataset.uid;
+          let contact = contacts.find(c => c.user_id === uid);
+          if (!contact) contact = {user_id: uid, name: uid.substring(0, 12) + '...'};
+          openChat(contact);
+          return;
+        }
+        const groupEl = e.target.closest('.group-item');
+        if (groupEl) {
+          const group = groups.find(g => g.id === groupEl.dataset.gid);
+          if (group) openGroupChat(group);
+        }
+      });
+    }
     const hasContacts = contacts && contacts.length > 0;
     const hasGroups = groups && groups.length > 0;
 
@@ -567,21 +588,7 @@
     lastRenderedHTML = html;
     list.innerHTML = html;
 
-    // Contact click handlers
-    list.querySelectorAll('.contact-item:not(.group-item)').forEach(el => {
-      el.addEventListener('click', () => {
-        const contact = contacts.find(c => c.user_id === el.dataset.uid);
-        if (contact) openChat(contact);
-      });
-    });
-
-    // Group click handlers
-    list.querySelectorAll('.group-item').forEach(el => {
-      el.addEventListener('click', () => {
-        const group = groups.find(g => g.id === el.dataset.gid);
-        if (group) openGroupChat(group);
-      });
-    });
+    // Click handlers are delegated (set once above) — no per-element binding needed
   }
 
   // === STATUS ===
