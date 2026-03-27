@@ -81,6 +81,7 @@ type statusResponse struct {
 	Relay    bool   `json:"relay"`
 	DNS      bool   `json:"dns"`
 	HoldSize int    `json:"holdSize"`
+	Clippers int    `json:"clippers"` // silent mesh nodes (Pixel Classics blockade runners)
 	Version  string `json:"version"`
 	Build    string `json:"build"`
 }
@@ -266,12 +267,19 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		mode = "lan"
 	}
 
+	// Fetch clipper count from relay (non-blocking, cached)
+	clippers := 0
+	if a.RelayClient != nil {
+		clippers = a.RelayClient.GetClipperCount()
+	}
+
 	resp := statusResponse{
 		Mode:     mode,
 		Peers:    a.Peers.Count(),
 		Relay:    relayConnected,
 		DNS:      dnsConnected,
 		HoldSize: a.Hold.Count(),
+		Clippers: clippers,
 		Version:  "0.6.0-alpha",
 		Build:    BuildNumber,
 	}

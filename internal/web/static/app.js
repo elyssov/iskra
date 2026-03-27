@@ -641,6 +641,10 @@
         parts.push(`${data.holdSize} ${t('status_hold')}`);
       }
 
+      if (data.clippers > 0) {
+        parts.push(`\u2693 ${data.clippers}`);
+      }
+
       bar.innerHTML = parts.join(' · ');
 
       // Show build number in header
