@@ -1,6 +1,7 @@
 package mesh
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -98,6 +99,27 @@ func (rc *RelayClient) IsConnected() bool {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	return rc.connected
+}
+
+// GetClipperCount fetches the number of silent mesh nodes (blockade runners)
+// from the relay's /online endpoint. Returns 0 on error or if not connected.
+func (rc *RelayClient) GetClipperCount() int {
+	if !rc.IsConnected() || rc.httpURL == "" {
+		return 0
+	}
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(rc.httpURL + "/online")
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Clippers int `json:"clippers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0
+	}
+	return result.Clippers
 }
 
 // SendMessage sends a message to a recipient via relay.

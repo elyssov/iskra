@@ -44,6 +44,7 @@ type clientInfo struct {
 	conn      *websocket.Conn
 	edPub     [32]byte // Ed25519 pubkey
 	x25519Pub [32]byte // X25519 pubkey
+	hasSent   bool     // true if client ever sent a message (not a clipper)
 }
 
 type relay struct {
@@ -101,6 +102,7 @@ func (r *relay) handleOnline(w http.ResponseWriter, req *http.Request) {
 
 	r.mu.RLock()
 	peers := make([]onlinePeer, 0, len(r.aliases))
+	clippers := 0
 	for uid, alias := range r.aliases {
 		if ci, ok := r.clients[uid]; ok {
 			peers = append(peers, onlinePeer{
@@ -108,13 +110,17 @@ func (r *relay) handleOnline(w http.ResponseWriter, req *http.Request) {
 				EdPub:  fmt.Sprintf("%x", ci.edPub),
 				X25519: fmt.Sprintf("%x", ci.x25519Pub),
 			})
+			if !ci.hasSent {
+				clippers++
+			}
 		}
 	}
 	r.mu.RUnlock()
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"count": len(peers),
-		"peers": peers,
+		"count":    len(peers),
+		"clippers": clippers,
+		"peers":    peers,
 	})
 }
 
@@ -226,6 +232,13 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 
 		recipID := fmt.Sprintf("%x", data[:20])
 		msgData := data[20:]
+
+		// Mark as active sender (not a clipper)
+		r.mu.Lock()
+		if ci, ok := r.clients[userID]; ok {
+			ci.hasSent = true
+		}
+		r.mu.Unlock()
 
 		frame := make([]byte, 20+len(msgData))
 		copy(frame[:20], edPub[:20])
