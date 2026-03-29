@@ -183,6 +183,7 @@ func main() {
 
 	// Set message handlers
 	transport.SetOnMessage(handleMessage)
+	transport.SetHold(hold) // fallback for WANT when message not in sync snapshot
 	if relayClient != nil {
 		relayClient.SetOnMessage(handleMessage)
 		var lastSync time.Time

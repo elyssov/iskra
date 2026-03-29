@@ -57,12 +57,18 @@ const (
 
 // Transport manages TCP connections between nodes.
 // Using TCP instead of KCP for alpha simplicity — KCP can be added in v0.2.
+// HoldReader allows transport to read messages directly from hold storage.
+type HoldReader interface {
+	Get(id [32]byte) (*message.Message, error)
+}
+
 type Transport struct {
 	pubKey     [32]byte
 	listenPort uint16
 	listener   net.Listener
 	peers      *PeerList
 	onMessage  func(*message.Message)
+	hold       HoldReader // fallback for WANT when message not in snapshot
 	sessions   map[[32]byte]net.Conn
 	mu         sync.RWMutex
 	stop       chan struct{}
@@ -82,6 +88,11 @@ func NewTransport(pubKey [32]byte, listenPort uint16, peers *PeerList) *Transpor
 // SetOnMessage sets the callback for received messages.
 func (t *Transport) SetOnMessage(fn func(*message.Message)) {
 	t.onMessage = fn
+}
+
+// SetHold sets the hold storage for WANT fallback reads.
+func (t *Transport) SetHold(h HoldReader) {
+	t.hold = h
 }
 
 // Start begins listening for connections.
@@ -375,11 +386,19 @@ func (t *Transport) handleConnection(conn net.Conn, peerPub [32]byte, holdMsgs [
 				if _, err := io.ReadFull(conn, id[:]); err != nil {
 					return
 				}
-				// Find and send the message from hold
+				// Find and send the message from hold snapshot
+				found := false
 				for _, msg := range holdMsgs {
 					if msg.ID == id {
 						t.sendMsg(conn, msg)
+						found = true
 						break
+					}
+				}
+				// Fallback: read from disk if not in snapshot (bloom race)
+				if !found && t.hold != nil {
+					if msg, err := t.hold.Get(id); err == nil && msg != nil {
+						t.sendMsg(conn, msg)
 					}
 				}
 			}
