@@ -184,6 +184,12 @@ func main() {
 	// Set message handlers
 	transport.SetOnMessage(handleMessage)
 	transport.SetHold(hold) // fallback for WANT when message not in sync snapshot
+	transport.SetOnAck(func(msgID [32]byte) {
+		// LAN peer acknowledged receipt — mark as delivered
+		idStr := fmt.Sprintf("%x", msgID[:])
+		api.Inbox.MarkDelivered(idStr)
+		hold.Delete(msgID)
+	})
 	if relayClient != nil {
 		relayClient.SetOnMessage(handleMessage)
 		var lastSync time.Time

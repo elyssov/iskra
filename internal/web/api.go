@@ -192,20 +192,8 @@ func (a *API) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Store in inbox
-		a.Inbox.AddMessage(userID, store.InboxMessage{
-			ID:        hex.EncodeToString(msg.ID[:]),
-			From:      identity.UserID(a.Keypair.Ed25519Pub),
-			FromPub:   identity.ToBase58(a.Keypair.Ed25519Pub[:]),
-			Text:      req.Text,
-			Timestamp: msg.Timestamp,
-			Status:    "sent",
-			Outgoing:  true,
-		})
-
-		// Auto-save inbox on send
-		if a.DataDir != "" {
-			a.Inbox.Save(a.InboxFilePath())
-		}
+		msgID := hex.EncodeToString(msg.ID[:])
+		sendStatus := "pending" // will upgrade to "sent" if any transport succeeds
 
 		// Add to bloom
 		a.Bloom.Add(msg.ID)
@@ -216,6 +204,9 @@ func (a *API) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		// Broadcast to connected peers
 		if a.Transport != nil {
 			a.Transport.BroadcastMessage(msg)
+			if a.Peers.Count() > 0 {
+				sendStatus = "sent"
+			}
 			log.Printf("[Send] Broadcast to %d LAN peers", a.Peers.Count())
 		}
 
@@ -224,22 +215,38 @@ func (a *API) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			if err := a.RelayClient.SendMessage(msg); err != nil {
 				log.Printf("[Send] Relay send failed: %v", err)
 			} else {
+				sendStatus = "sent"
 				log.Printf("[Send] Sent via relay, recipientID=%x", msg.RecipientID[:])
 			}
 		} else if a.DNSTransport != nil && a.DNSTransport.IsConnected() {
-			// Fallback: DNS tunnel when relay is down
 			if err := a.DNSTransport.SendMessage(msg); err != nil {
 				log.Printf("[Send] DNS tunnel send failed: %v", err)
 			} else {
+				sendStatus = "sent"
 				log.Printf("[Send] Sent via DNS tunnel, recipientID=%x", msg.RecipientID[:])
 			}
-		} else {
-			log.Printf("[Send] No relay/DNS connected, message stored in hold")
+		} else if sendStatus == "pending" {
+			log.Printf("[Send] No relay/DNS/LAN connected, message queued in hold")
+		}
+
+		a.Inbox.AddMessage(userID, store.InboxMessage{
+			ID:        msgID,
+			From:      identity.UserID(a.Keypair.Ed25519Pub),
+			FromPub:   identity.ToBase58(a.Keypair.Ed25519Pub[:]),
+			Text:      req.Text,
+			Timestamp: msg.Timestamp,
+			Status:    sendStatus,
+			Outgoing:  true,
+		})
+
+		// Auto-save inbox on send (async)
+		if a.DataDir != "" {
+			go a.Inbox.Save(a.InboxFilePath())
 		}
 
 		writeJSON(w, map[string]string{
-			"status": "sent",
-			"id":     hex.EncodeToString(msg.ID[:]),
+			"status": sendStatus,
+			"id":     msgID,
 		})
 
 	default:

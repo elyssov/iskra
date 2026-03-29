@@ -132,25 +132,33 @@ func (h *Hold) GetForSync() ([]*message.Message, []int) {
 			continue
 		}
 
-		// Increment forward count
-		meta.ForwardCount++
-
-		// Receiver gets HopTTL-1
+		// Don't increment ForwardCount here — call MarkForwarded() after actual send
 		receiverTTL := meta.HopTTL - 1
 		msgs = append(msgs, msg)
 		hopTTLs = append(hopTTLs, receiverTTL)
-
-		// Check if we hit forward limit
-		if meta.ForwardCount >= DefaultFwdLimit {
-			meta.Exhausted = true
-			meta.MorgueAt = time.Now().Unix()
-			log.Printf("[Hold] Message %s hit forward limit, moving to morgue", idHex[:8])
-		}
 	}
 
 	// Always save metadata — even if no messages to send, counters may have changed
 	h.saveMeta()
 	return msgs, hopTTLs
+}
+
+// MarkForwarded increments the forward count for a message after successful send.
+func (h *Hold) MarkForwarded(id [32]byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	idHex := fmt.Sprintf("%x", id[:])
+	meta, ok := h.meta[idHex]
+	if !ok {
+		return
+	}
+	meta.ForwardCount++
+	if meta.ForwardCount >= DefaultFwdLimit {
+		meta.Exhausted = true
+		meta.MorgueAt = time.Now().Unix()
+		log.Printf("[Hold] Message %s hit forward limit (%d), moving to morgue", idHex[:8], meta.ForwardCount)
+	}
+	h.saveMeta()
 }
 
 // GetAll returns all messages in the hold (for legacy sync compatibility).
