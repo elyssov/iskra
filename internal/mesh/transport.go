@@ -57,9 +57,10 @@ const (
 
 // Transport manages TCP connections between nodes.
 // Using TCP instead of KCP for alpha simplicity — KCP can be added in v0.2.
-// HoldReader allows transport to read messages directly from hold storage.
+// HoldReader allows transport to read/update hold storage.
 type HoldReader interface {
 	Get(id [32]byte) (*message.Message, error)
+	MarkForwarded(id [32]byte)
 }
 
 type Transport struct {
@@ -68,7 +69,8 @@ type Transport struct {
 	listener   net.Listener
 	peers      *PeerList
 	onMessage  func(*message.Message)
-	hold       HoldReader // fallback for WANT when message not in snapshot
+	onAck      func([32]byte) // called when peer ACKs a message
+	hold       HoldReader     // fallback for WANT when message not in snapshot
 	sessions   map[[32]byte]net.Conn
 	mu         sync.RWMutex
 	stop       chan struct{}
@@ -93,6 +95,11 @@ func (t *Transport) SetOnMessage(fn func(*message.Message)) {
 // SetHold sets the hold storage for WANT fallback reads.
 func (t *Transport) SetHold(h HoldReader) {
 	t.hold = h
+}
+
+// SetOnAck sets the callback for received ACKs (delivery confirmation via LAN).
+func (t *Transport) SetOnAck(fn func([32]byte)) {
+	t.onAck = fn
 }
 
 // Start begins listening for connections.
@@ -369,7 +376,12 @@ func (t *Transport) handleConnection(conn net.Conn, peerPub [32]byte, holdMsgs [
 			if _, err := io.ReadFull(conn, idBuf); err != nil {
 				return
 			}
-			// ACK received — could update delivery status
+			// ACK received — notify handler to update delivery status
+			if t.onAck != nil {
+				var id [32]byte
+				copy(id[:], idBuf)
+				t.onAck(id)
+			}
 
 		case CmdWant:
 			// Read list of wanted message IDs
@@ -392,6 +404,10 @@ func (t *Transport) handleConnection(conn net.Conn, peerPub [32]byte, holdMsgs [
 					if msg.ID == id {
 						t.sendMsg(conn, msg)
 						found = true
+						// Mark forwarded AFTER successful send
+						if t.hold != nil {
+							t.hold.MarkForwarded(id)
+						}
 						break
 					}
 				}
@@ -399,6 +415,7 @@ func (t *Transport) handleConnection(conn net.Conn, peerPub [32]byte, holdMsgs [
 				if !found && t.hold != nil {
 					if msg, err := t.hold.Get(id); err == nil && msg != nil {
 						t.sendMsg(conn, msg)
+						t.hold.MarkForwarded(id)
 					}
 				}
 			}
