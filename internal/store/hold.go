@@ -148,9 +148,8 @@ func (h *Hold) GetForSync() ([]*message.Message, []int) {
 		}
 	}
 
-	if len(msgs) > 0 {
-		h.saveMeta()
-	}
+	// Always save metadata — even if no messages to send, counters may have changed
+	h.saveMeta()
 	return msgs, hopTTLs
 }
 

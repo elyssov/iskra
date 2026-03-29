@@ -372,9 +372,9 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 			// Update contact last seen
 			a.Contacts.UpdateLastSeen(senderID, time.Now().Unix())
 
-			// Auto-save inbox on receive
+			// Auto-save inbox on receive (async — don't block relay readLoop)
 			if a.DataDir != "" {
-				a.Inbox.Save(a.InboxFilePath())
+				go a.Inbox.Save(a.InboxFilePath())
 			}
 
 			// Send delivery confirmation back to sender
@@ -421,7 +421,7 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 						Timestamp: msg.Timestamp,
 						Outgoing:  false,
 					})
-					a.Groups.Save()
+					go a.Groups.Save()
 				}
 			}
 

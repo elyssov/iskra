@@ -1780,17 +1780,17 @@
   }
 
   function startPolling() {
-    // Messages: 2s when chat open, skip if typing
+    // Messages: 1s when chat open, skip if typing
     setInterval(() => {
-      if (document.getElementById('msg-input') === document.activeElement) return; // don't poll while typing
+      if (document.getElementById('msg-input') === document.activeElement) return;
       if (currentContact) loadMessages();
       if (currentGroup) loadGroupMessages();
       if (currentChannel) loadChannelPosts();
-    }, 2000);
-    // Sidebar: 2s — unread badges (lightweight POST)
+    }, 1000);
+    // Sidebar: 1.5s — unread badges + auto-prefetch new messages
     setInterval(() => {
       updateUnreadCounts();
-    }, 2000);
+    }, 1500);
     // Status/online: 10s
     setInterval(() => {
       loadContacts().then(() => loadGroups()).then(() => loadChannels());
