@@ -11,8 +11,8 @@ android {
         applicationId = "com.iskra.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 19
-        versionName = "0.6.0-alpha"
+        versionCode = 21
+        versionName = "0.6.1-alpha"
     }
 
     signingConfigs {
