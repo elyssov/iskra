@@ -4,3 +4,13 @@ dist/
 .iskra/
 iskra-project.tar.gz
 android/app/iskra-release.jks
+dist-release/
+*.exe
+*.zip
+*.rar
+*.jks
+panic-demo.exe
+udp-relay.exe
+iskra.exe
+relay.exe
+SeeaTactics.html
