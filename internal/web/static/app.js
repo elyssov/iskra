@@ -321,6 +321,7 @@
     langScreen.querySelectorAll('.lang-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         window._lang = btn.dataset.lang;
+        localStorage.setItem('iskra-lang', btn.dataset.lang);
         langScreen.style.display = 'none';
         translatePage();
         startApp();
@@ -330,6 +331,15 @@
 
   // === INIT ===
   async function init() {
+    // Restore saved language — skip language screen
+    const savedLang = localStorage.getItem('iskra-lang');
+    if (savedLang) {
+      window._lang = savedLang;
+      document.getElementById('lang-screen').style.display = 'none';
+      translatePage();
+      startApp();
+      return;
+    }
     setupLanguageScreen();
     // Language screen is visible by default — wait for selection
   }
@@ -677,26 +687,31 @@
     }
   }
 
-  function showUpdateModal(data) {
-    let modal = document.getElementById('modal-update');
-    if (modal) modal.remove();
+  function findPlatformAsset(assets) {
+    if (!assets || assets.length === 0) return null;
+    const ua = navigator.userAgent.toLowerCase();
+    const isAndroid = ua.indexOf('android') !== -1;
+    const isWindows = ua.indexOf('win') !== -1 && ua.indexOf('android') === -1;
+    if (isAndroid) {
+      return assets.find(a => a.name.toLowerCase().endsWith('.apk')) || null;
+    } else if (isWindows) {
+      return assets.find(a => a.name.toLowerCase().includes('windows') && a.name.toLowerCase().endsWith('.exe'))
+        || assets.find(a => a.name.toLowerCase().endsWith('.exe')) || null;
+    }
+    return assets.find(a => a.name.toLowerCase().includes('linux') && !a.name.toLowerCase().endsWith('.exe')) || null;
+  }
 
+  function showUpdateModal(data) {
     const ua = navigator.userAgent.toLowerCase();
     const isAndroid = ua.indexOf('android') !== -1;
     const isWindows = ua.indexOf('win') !== -1 && ua.indexOf('android') === -1;
 
-    // Find the right asset for this platform
-    let targetAsset = null;
-    if (data.assets && data.assets.length > 0) {
-      if (isAndroid) {
-        targetAsset = data.assets.find(a => a.name.toLowerCase().endsWith('.apk'));
-      } else if (isWindows) {
-        targetAsset = data.assets.find(a => a.name.toLowerCase().includes('windows') && a.name.toLowerCase().endsWith('.exe'));
-        if (!targetAsset) targetAsset = data.assets.find(a => a.name.toLowerCase().endsWith('.exe'));
-      } else {
-        targetAsset = data.assets.find(a => a.name.toLowerCase().includes('linux') && !a.name.toLowerCase().endsWith('.exe'));
-      }
-    }
+    // Find the right asset for this platform — don't show modal if none
+    let targetAsset = findPlatformAsset(data.assets);
+    if (!targetAsset) return;
+
+    let modal = document.getElementById('modal-update');
+    if (modal) modal.remove();
 
     const changelog = (data.changelog || '').replace(/\n/g, '<br>');
     const sizeMB = targetAsset ? (targetAsset.size / 1048576).toFixed(1) : '?';
@@ -725,10 +740,7 @@
           <p id="update-status" style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:8px">Скачивание...</p>
         </div>
         <div id="update-buttons" class="modal-buttons" style="justify-content:center;gap:12px;margin-top:16px">
-          ${targetAsset
-            ? `<button class="btn-primary btn-large" id="btn-do-update">Обновить сейчас</button>`
-            : `<p style="color:var(--text-muted)">Файл для вашей платформы не найден</p>`
-          }
+          <button class="btn-primary btn-large" id="btn-do-update">Обновить сейчас</button>
           <button class="btn-secondary" id="btn-update-later">Позже</button>
         </div>
       </div>`;
@@ -744,12 +756,10 @@
       closeModal('modal-update');
     });
 
-    if (targetAsset) {
-      modal.querySelector('#btn-do-update').addEventListener('click', () => {
-        localStorage.setItem('iskra-update-dismissed', dismissKey);
-        doUpdate(targetAsset, isAndroid, isWindows);
-      });
-    }
+    modal.querySelector('#btn-do-update').addEventListener('click', () => {
+      localStorage.setItem('iskra-update-dismissed', dismissKey);
+      doUpdate(targetAsset, isAndroid, isWindows);
+    });
   }
 
   async function doUpdate(asset, isAndroid, isWindows) {
@@ -938,8 +948,8 @@
     currentContact = null;
     currentGroup = null;
     currentChannel = ch;
-    document.getElementById('chat-name').textContent = ch.title || ch.id.substring(0,8);
-    document.getElementById('chat-status').textContent = ch.is_owner ? 'Your channel' : 'Broadcast';
+    document.getElementById('chat-contact-name').textContent = ch.title || ch.id.substring(0,8);
+    document.getElementById('chat-contact-status').textContent = ch.is_owner ? 'Your channel' : 'Broadcast';
     document.getElementById('input-area').style.display = ch.is_owner ? 'flex' : 'none';
     document.getElementById('welcome-screen').style.display = 'none';
     document.getElementById('messages').style.display = 'block';
@@ -976,7 +986,8 @@
       const time = new Date(p.timestamp * 1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
       return `<div class="message ${cls}"><div class="msg-text">${esc(p.text)}</div><span class="msg-time">${time}</span></div>`;
     }).join('');
-    container.scrollTop = container.scrollHeight;
+    const wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+    if (wasNearBottom) container.scrollTop = container.scrollHeight;
   }
 
   async function sendChannelPost() {
@@ -1095,7 +1106,8 @@
       });
     });
 
-    container.scrollTop = container.scrollHeight;
+    const wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+    if (wasNearBottom) container.scrollTop = container.scrollHeight;
   }
 
   function scrollToMessage(msgId, msgs) {
@@ -1138,10 +1150,11 @@
   };
 
   async function sendGroupMessage() {
-    if (!currentGroup) return;
+    if (!currentGroup || _sending) return;
     const input = document.getElementById('msg-input');
     const text = input.value.trim();
     if (!text) return;
+    _sending = true;
     input.value = '';
     input.style.height = 'auto';
 
@@ -1162,7 +1175,9 @@
         body: JSON.stringify(body)
       });
       loadGroupMessages();
-    } catch(e) { console.error('Group send failed:', e); }
+    } catch(e) { console.error('Group send failed:', e); } finally {
+      _sending = false;
+    }
   }
 
   // === CHAT ===
@@ -1245,7 +1260,9 @@
         <div class="meta">${lockSVG}${check}</div>
       </div>`;
     }).join('');
-    container.scrollTop = container.scrollHeight;
+    // Auto-scroll only if user was near bottom (not reading history)
+    const wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+    if (wasNearBottom) container.scrollTop = container.scrollHeight;
   }
 
   function formatTime(ts) {
@@ -1294,12 +1311,14 @@
   // Lock icon SVG (inline, tiny)
   const lockSVG = '<span class="msg-lock"><svg viewBox="0 0 24 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span>';
 
+  let _sending = false;
   async function sendMessage() {
-    if (!currentContact) return;
+    if (!currentContact || _sending) return;
     const input = document.getElementById('msg-input');
     const text = input.value.trim();
     if (!text) return;
 
+    _sending = true;
     input.value = '';
     input.style.height = 'auto';
 
@@ -1312,6 +1331,8 @@
       loadMessages();
     } catch(e) {
       console.error('Send failed:', e);
+    } finally {
+      _sending = false;
     }
   }
 
@@ -1780,9 +1801,8 @@
   }
 
   function startPolling() {
-    // Messages: 1s when chat open, skip if typing
+    // Messages: poll every 1s (always — renderMessages only touches #messages, not input)
     setInterval(() => {
-      if (document.getElementById('msg-input') === document.activeElement) return;
       if (currentContact) loadMessages();
       if (currentGroup) loadGroupMessages();
       if (currentChannel) loadChannelPosts();
@@ -1807,6 +1827,22 @@
 
   window.closeModal = function(id) {
     document.getElementById(id).style.display = 'none';
+  };
+
+  // Hardware back button (Android) — go to chat list instead of exiting
+  window._handleBack = function() {
+    // Close any open modal first
+    const openModal = document.querySelector('.modal[style*="display: flex"], .modal[style*="display:flex"]');
+    if (openModal) {
+      openModal.style.display = 'none';
+      return true;
+    }
+    // If in chat, go back to contact list
+    if (document.getElementById('app').classList.contains('chat-open')) {
+      document.getElementById('btn-back').click();
+      return true;
+    }
+    return false; // let Android handle it (minimize)
   };
 
   document.addEventListener('DOMContentLoaded', init);
