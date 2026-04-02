@@ -225,6 +225,9 @@
   // === MASTER DEVELOPER CONTACT ===
   const MASTER_ID = '5DyavZ4hxwRrQEfY8oBi';
 
+  // === LARA — AI TEAM MEMBER ===
+  const LARA_ID = '6HrNKqeS89xtYme6bPzB';
+
   async function ensureMasterContact() {
     // Don't add master to itself
     if (window._identity && window._identity.userID === MASTER_ID) return;
@@ -248,8 +251,36 @@
     } catch(e) {}
   }
 
+  async function ensureLaraContact() {
+    if (window._identity && window._identity.userID === LARA_ID) return;
+    const existing = contacts.find(c => c.user_id === LARA_ID);
+    if (existing) return;
+    try {
+      const resp = await fetch('/api/lara/contact');
+      const l = await resp.json();
+      await fetch('/api/contacts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          name: l.name,
+          pubkeyBase58: l.edPub,
+          x25519Base58: l.x25519Pub
+        })
+      });
+      await loadContacts();
+    } catch(e) {}
+  }
+
   function isMasterContact(userID) {
     return userID === MASTER_ID;
+  }
+
+  function isLaraContact(userID) {
+    return userID === LARA_ID;
+  }
+
+  function isSpecialContact(userID) {
+    return isMasterContact(userID) || isLaraContact(userID);
   }
 
   function showMasterLogin() {
@@ -368,6 +399,7 @@
 
     await loadContacts();
     await ensureMasterContact();
+    await ensureLaraContact();
     await loadGroups();
     await loadChannels();
     await loadStatus();
@@ -571,23 +603,24 @@
       } else {
         const c = item.data;
         const isMaster = isMasterContact(c.user_id);
-        const initial = isMaster ? 'M' : (c.name || '?')[0].toUpperCase();
-        const color = isMaster ? '#B8860B' : getAvatarColor(c.name);
+        const isLara = isLaraContact(c.user_id);
+        const initial = isMaster ? 'M' : isLara ? '🔥' : (c.name || '?')[0].toUpperCase();
+        const color = isMaster ? '#B8860B' : isLara ? '#D4AF37' : getAvatarColor(c.name);
         const active = currentContact && currentContact.user_id === c.user_id ? ' active' : '';
         const unread = unreadCounts[c.user_id] || 0;
         const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
-        const masterBadge = isMaster ? '<span class="master-badge">DEV</span>' : '';
-        const preview = lastMessages[c.user_id] || (isMaster ? 'Developer support' : '');
+        const specialBadge = isMaster ? '<span class="master-badge">DEV</span>' : isLara ? '<span class="lara-badge">LARA</span>' : '';
+        const preview = lastMessages[c.user_id] || (isMaster ? 'Developer support' : isLara ? 'AI team member' : '');
         const isOnline = onlineSet.has(c.user_id);
         const onlineDot = isOnline ? '<span class="avatar-online-dot"></span>' : '';
         const timeStr = formatContactTime(lastActivity[c.user_id]);
         const timeClass = unread > 0 ? ' has-unread' : '';
-        const masterClass = isMaster ? ' master-contact' : '';
-        return `<div class="contact-item${active}${masterClass}" data-uid="${c.user_id}">
+        const specialClass = isSpecialContact(c.user_id) ? ' master-contact' : '';
+        return `<div class="contact-item${active}${specialClass}" data-uid="${c.user_id}">
           <div class="contact-avatar" style="background:${color}">${initial}${onlineDot}</div>
           <div class="contact-info">
             <div class="contact-top-row">
-              <span class="contact-name">${esc(c.name)}${masterBadge}</span>
+              <span class="contact-name">${esc(c.name)}${specialBadge}</span>
               <span class="contact-time${timeClass}">${timeStr}</span>
             </div>
             <div class="contact-bottom-row">
@@ -1243,7 +1276,7 @@
       container.innerHTML = `<div class="messages-empty">${t('msg_empty')}</div>`;
       return;
     }
-    const isMasterChat = currentContact && isMasterContact(currentContact.user_id);
+    const isMasterChat = currentContact && isSpecialContact(currentContact.user_id);
     container.innerHTML = msgs.map(m => {
       const cls = m.outgoing ? 'out' : 'in';
       const masterCls = (isMasterChat && !m.outgoing) ? ' master-msg' : '';

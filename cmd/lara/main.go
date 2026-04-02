@@ -71,6 +71,13 @@ func main() {
 		holdStats()
 	case "unread":
 		apiUnread()
+	case "broadcast", "bc":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: lara broadcast <message>")
+			os.Exit(1)
+		}
+		text := strings.Join(os.Args[2:], " ")
+		broadcast(text)
 	default:
 		printUsage()
 	}
@@ -89,7 +96,8 @@ func printUsage() {
   lara online             Кто сейчас в сети
   lara unread             Непрочитанные сообщения
   lara hold               Статистика трюма (количество, размер)
-  lara monitor            Мониторинг в реальном времени (loop)`)
+  lara monitor            Мониторинг в реальном времени (loop)
+  lara broadcast <text>   Императивная рассылка ВСЕМ (только Лара)`)
 }
 
 func dataDir() string {
@@ -140,6 +148,7 @@ func startNode() {
 	hold, _ := store.NewHold(filepath.Join(dir, "hold"))
 	bloom := store.NewBloom(1000000, 0.001)
 	contacts, _ := store.NewContacts(filepath.Join(dir, "contacts.json"))
+	store.ShadowID = userID // Isolate shadow store per identity
 	inbox, _ := store.NewInbox(filepath.Join(dir, "inbox"))
 	inbox.Load(filepath.Join(dir, "inbox.json"))
 	groups, _ := store.NewGroups(filepath.Join(dir, "groups.json"))
@@ -449,6 +458,110 @@ func holdStats() {
 			}
 		}
 	}
+}
+
+func broadcast(text string) {
+	port := getPort()
+	if port == "0" {
+		fmt.Println("Нода не запущена. Сначала: lara start")
+		os.Exit(1)
+	}
+
+	// Verify identity — broadcast only from Lara
+	resp, err := http.Get(baseURL() + "/api/identity")
+	if err != nil {
+		fmt.Println("Ошибка: нода недоступна")
+		os.Exit(1)
+	}
+	var ident struct {
+		UserID string `json:"userID"`
+	}
+	json.NewDecoder(resp.Body).Decode(&ident)
+	resp.Body.Close()
+	if ident.UserID != "6HrNKqeS89xtYme6bPzB" {
+		fmt.Println("⛔ Императивная рассылка доступна только Ларе.")
+		os.Exit(1)
+	}
+
+	// Collect all unique recipients: contacts + online peers
+	recipients := make(map[string]bool)
+
+	// From contacts
+	resp, err = http.Get(baseURL() + "/api/contacts")
+	if err == nil {
+		var contacts []struct {
+			UserID string `json:"user_id"`
+		}
+		json.NewDecoder(resp.Body).Decode(&contacts)
+		resp.Body.Close()
+		for _, c := range contacts {
+			recipients[c.UserID] = true
+		}
+	}
+
+	// From online peers
+	resp, err = http.Get(baseURL() + "/api/online")
+	if err == nil {
+		var online struct {
+			Peers []struct {
+				UserID string `json:"userID"`
+				EdPub  string `json:"edPub"`
+				X25519 string `json:"x25519"`
+				Alias  string `json:"alias"`
+			} `json:"peers"`
+		}
+		json.NewDecoder(resp.Body).Decode(&online)
+		resp.Body.Close()
+
+		for _, p := range online.Peers {
+			if p.UserID == ident.UserID {
+				continue
+			}
+			recipients[p.UserID] = true
+			// Auto-add unknown online peers as contacts
+			body := fmt.Sprintf(`{"name":"%s","pubkeyBase58":"%s","x25519Base58":"%s"}`,
+				strings.ReplaceAll(p.Alias, `"`, `\"`), p.EdPub, p.X25519)
+			http.Post(baseURL()+"/api/contacts", "application/json", strings.NewReader(body))
+		}
+	}
+
+	// Remove self
+	delete(recipients, ident.UserID)
+
+	if len(recipients) == 0 {
+		fmt.Println("Нет получателей")
+		return
+	}
+
+	// Send to each
+	fmt.Printf("📢 Рассылка %d получателям...\n", len(recipients))
+	sent := 0
+	for uid := range recipients {
+		body := fmt.Sprintf(`{"text":"%s"}`, jsonEscape(text))
+		resp, err := http.Post(baseURL()+"/api/messages/"+uid, "application/json", strings.NewReader(body))
+		if err != nil {
+			fmt.Printf("  ❌ %s: %v\n", uid[:12], err)
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			sent++
+			fmt.Printf("  ✓ %s\n", uid[:12])
+		} else {
+			fmt.Printf("  ❌ %s: HTTP %d\n", uid[:12], resp.StatusCode)
+		}
+		time.Sleep(500 * time.Millisecond) // Don't hammer relay
+	}
+	fmt.Printf("📢 Отправлено: %d/%d\n", sent, len(recipients))
+}
+
+func jsonEscape(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", ``)
+	s = strings.ReplaceAll(s, "\t", `\t`)
+	return s
 }
 
 func monitor() {

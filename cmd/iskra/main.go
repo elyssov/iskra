@@ -89,6 +89,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load contacts: %v", err)
 	}
+	store.ShadowID = userID // Isolate shadow store per identity
 	inbox, err := store.NewInbox(filepath.Join(*dataDir, "inbox"))
 	if err != nil {
 		log.Fatalf("Failed to create inbox: %v", err)

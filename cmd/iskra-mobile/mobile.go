@@ -68,6 +68,8 @@ func Start(dataDir string, port int) int {
 		log.Printf("Failed to load contacts: %v", err)
 		return 0
 	}
+	store.ShadowDir = dataDir // Mobile: shadow store in app-specific dir
+	store.ShadowID = identity.UserID(keypair.Ed25519Pub) // Isolate per identity
 	inbox, err := store.NewInbox(filepath.Join(dataDir, "inbox"))
 	if err != nil {
 		log.Printf("Failed to create inbox: %v", err)
