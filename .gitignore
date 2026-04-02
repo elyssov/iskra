@@ -1,16 +1,26 @@
-dist/
-*.aar
-*.apk
-.iskra/
-iskra-project.tar.gz
-android/app/iskra-release.jks
-dist-release/
+# Build artifacts — download from Releases
 *.exe
+*.apk
+*.aar
 *.zip
 *.rar
 *.jks
-panic-demo.exe
-udp-relay.exe
-iskra.exe
-relay.exe
+
+# Data & caches
+.iskra/
+dist/
+dist-release/
+dist-apk/
+
+# IDE & tools
+.claude/
+.gradle/
+.idea/
+*.iml
+local.properties
+
+# Misc
+iskra-project.tar.gz
 SeeaTactics.html
+android/app/build/
+android/app/libs/
