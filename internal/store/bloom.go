@@ -130,6 +130,11 @@ func (b *SimpleBloom) CheckInRemote(remoteData []byte, id [32]byte) bool {
 	return true
 }
 
+// NumHash returns the number of hash functions used by this bloom filter.
+func (b *SimpleBloom) NumHash() uint8 {
+	return b.numHash
+}
+
 // Export returns the raw bit array for sync protocol (HAVE message).
 func (b *SimpleBloom) Export() []byte {
 	b.mu.RLock()

@@ -12,6 +12,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebResourceError
@@ -23,6 +24,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import android.net.wifi.WifiManager
 import iskramobile.Iskramobile
@@ -35,6 +37,13 @@ class MainActivity : AppCompatActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var multicastLock: WifiManager.MulticastLock? = null
     private var wifiDirectManager: WifiDirectManager? = null
+    private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        fileUploadCallback?.onReceiveValue(if (uri != null) arrayOf(uri) else null)
+        fileUploadCallback = null
+    }
 
     companion object {
         private const val TAG = "Iskra"
@@ -184,7 +193,25 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onShowFileChooser(
+                    webView: WebView?,
+                    filePathCallback: ValueCallback<Array<Uri>>?,
+                    fileChooserParams: FileChooserParams?
+                ): Boolean {
+                    fileUploadCallback?.onReceiveValue(null)
+                    fileUploadCallback = filePathCallback
+                    try {
+                        fileChooserLauncher.launch("*/*")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "File chooser failed", e)
+                        fileUploadCallback?.onReceiveValue(null)
+                        fileUploadCallback = null
+                        return false
+                    }
+                    return true
+                }
+            }
             addJavascriptInterface(UpdateBridge(), "IskraUpdate")
         }
 
@@ -224,10 +251,10 @@ class MainActivity : AppCompatActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (webView?.canGoBack() == true) {
-            webView?.goBack()
-        } else {
-            super.onBackPressed()
+        webView?.evaluateJavascript("window._handleBack ? window._handleBack() : false") { result ->
+            if (result == "false" || result == "null") {
+                runOnUiThread { super.onBackPressed() }
+            }
         }
     }
 

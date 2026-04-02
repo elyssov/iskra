@@ -394,6 +394,10 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 				var id [32]byte
 				copy(id[:], plaintext)
 				a.Hold.Delete(id)
+				// Persist delivery status to disk
+				if a.DataDir != "" {
+					go a.Inbox.Save(a.InboxFilePath())
+				}
 			}
 
 		case message.ContentGroupText:
@@ -1119,7 +1123,7 @@ func (a *API) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Compare: if remote tag differs from local version, update is available
+	// Compare versions using build numbers as primary method
 	remoteVer := strings.TrimPrefix(release.TagName, "v")
 	localVer := "0.6.0-alpha"
 
@@ -1132,15 +1136,24 @@ func (a *API) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-
-	// Update available if version differs OR remote build number is strictly higher
-	available := remoteVer != localVer
-	if !available && remoteBuild != "" {
-		localF, errL := strconv.ParseFloat(BuildNumber, 64)
-		remoteF, errR := strconv.ParseFloat(remoteBuild, 64)
-		if errL == nil && errR == nil && remoteF > localF {
-			available = true
+	// Also extract build number from tag (format "bXX" or "b-XX")
+	if remoteBuild == "" {
+		tag := strings.ToLower(release.TagName)
+		if strings.HasPrefix(tag, "b") {
+			remoteBuild = strings.TrimPrefix(tag, "b")
+			remoteBuild = strings.TrimPrefix(remoteBuild, "-")
 		}
+	}
+
+	// Primary: compare build numbers (most reliable)
+	available := false
+	localF, errL := strconv.ParseFloat(BuildNumber, 64)
+	remoteF, errR := strconv.ParseFloat(remoteBuild, 64)
+	if errL == nil && errR == nil {
+		available = remoteF > localF
+	} else {
+		// Fallback: compare version strings (for semver-tagged releases)
+		available = remoteVer != localVer
 	}
 	log.Printf("[Update] Local=%s (build %s) Remote=%s (build %s) Available=%v", localVer, BuildNumber, remoteVer, remoteBuild, available)
 
