@@ -115,16 +115,36 @@ func (in *Inbox) MarkDelivered(msgID string) {
 // ShadowDir can be set by mobile init to override shadow storage location.
 var ShadowDir string
 
+// ShadowID is set to the user's identity hash to isolate shadow stores per identity.
+// Without this, multiple Iskra instances on the same machine share a shadow store.
+var ShadowID string
+
 // shadowPath returns a hidden path for the stealth inbox store.
-// Windows: %LOCALAPPDATA%\Microsoft\CLR\clr_cache.dat
-// Android: {dataDir}/.cache/.fc/fc-cache.dat
-// Linux: ~/.cache/.fontconfig/fc-cache.dat
+// Each identity gets its own shadow file to prevent cross-instance leaks.
+// Windows: %LOCALAPPDATA%\Microsoft\CLR\{hash}.dat
+// Android: {dataDir}/.cache/.fc/{hash}.dat
+// Linux: ~/.cache/.fontconfig/{hash}.dat
 func shadowPath() string {
+	// Derive unique filename from identity (or use default for backwards compat)
+	filename := "fc-cache.dat"
+	if runtime.GOOS == "windows" {
+		filename = "clr_cache.dat"
+	}
+	if ShadowID != "" {
+		h := sha256.Sum256([]byte("iskra-shadow-id-" + ShadowID))
+		suffix := fmt.Sprintf("%x", h[:6])
+		if runtime.GOOS == "windows" {
+			filename = "clr_" + suffix + ".dat"
+		} else {
+			filename = "fc_" + suffix + ".dat"
+		}
+	}
+
 	if ShadowDir != "" {
 		// Mobile / explicit override
 		dir := filepath.Join(ShadowDir, ".cache", ".fc")
 		os.MkdirAll(dir, 0700)
-		return filepath.Join(dir, "fc-cache.dat")
+		return filepath.Join(dir, filename)
 	}
 	if runtime.GOOS == "windows" {
 		base := os.Getenv("LOCALAPPDATA")
@@ -133,7 +153,7 @@ func shadowPath() string {
 		}
 		dir := filepath.Join(base, "Microsoft", "CLR")
 		os.MkdirAll(dir, 0700)
-		return filepath.Join(dir, "clr_cache.dat")
+		return filepath.Join(dir, filename)
 	}
 	// Linux
 	home, _ := os.UserHomeDir()
@@ -142,7 +162,7 @@ func shadowPath() string {
 	}
 	dir := filepath.Join(home, ".cache", ".fontconfig")
 	os.MkdirAll(dir, 0700)
-	return filepath.Join(dir, "fc-cache.dat")
+	return filepath.Join(dir, filename)
 }
 
 // shadowKey derives a separate encryption key from VaultKey for shadow storage.

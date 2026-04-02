@@ -1491,6 +1491,17 @@ func (a *API) HandleMasterCheck(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleLaraCheck returns Lara's contact info for auto-add.
+func (a *API) HandleLaraCheck(w http.ResponseWriter, r *http.Request) {
+	uid, name, edPub, x25519 := LaraContact()
+	writeJSON(w, map[string]interface{}{
+		"userID":    uid,
+		"name":      name,
+		"edPub":     edPub,
+		"x25519Pub": x25519,
+	})
+}
+
 // ─── File transfer (chunked encrypted) ──────────────────────────────
 
 // HandleSendFile accepts a multipart file upload and sends it as chunked messages.
