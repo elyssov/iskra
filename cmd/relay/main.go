@@ -47,11 +47,21 @@ type clientInfo struct {
 	hasSent   bool     // true if client ever sent a message (not a clipper)
 }
 
+// knownPeer is a peer that has connected at least once. Persists with TTL.
+type knownPeer struct {
+	EdPub     string `json:"edPub"`
+	X25519Pub string `json:"x25519Pub"`
+	UserID    string `json:"userID"`
+	LastSeen  int64  `json:"lastSeen"`  // unix timestamp
+	IsClipper bool   `json:"isClipper"` // never sent a message
+}
+
 type relay struct {
-	clients map[string]*clientInfo   // UserID → client info
-	aliases map[string]string        // UserID → current alias
-	pending map[string][][]byte      // UserID → queued messages
-	mu      sync.RWMutex
+	clients    map[string]*clientInfo   // UserID → client info (online only)
+	aliases    map[string]string        // UserID → current alias
+	pending    map[string][][]byte      // UserID → queued messages
+	knownPeers map[string]*knownPeer   // UserID → ever-connected peer (TTL 30 days)
+	mu         sync.RWMutex
 }
 
 func main() {
@@ -65,16 +75,25 @@ func main() {
 	}
 
 	r := &relay{
-		clients: make(map[string]*clientInfo),
-		aliases: make(map[string]string),
-		pending: make(map[string][][]byte),
+		clients:    make(map[string]*clientInfo),
+		aliases:    make(map[string]string),
+		pending:    make(map[string][][]byte),
+		knownPeers: make(map[string]*knownPeer),
 	}
+
+	// Cleanup expired known peers every hour
+	go func() {
+		for range time.Tick(1 * time.Hour) {
+			r.cleanupKnownPeers()
+		}
+	}()
 
 	http.HandleFunc("/ws", r.handleWS)
 	http.HandleFunc("/online", r.handleOnline)
+	http.HandleFunc("/directory", r.handleDirectory)
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(w, "Iskra Relay v0.1\n")
+		fmt.Fprintf(w, "Iskra Relay v0.2\n")
 	})
 
 	addr := fmt.Sprintf(":%d", *port)
@@ -177,7 +196,7 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 
 	userID := fmt.Sprintf("%x", edPub[:20])
 
-	// Register client with alias
+	// Register client with alias + update directory
 	r.mu.Lock()
 	oldCI, existed := r.clients[userID]
 	if existed && oldCI != nil {
@@ -185,6 +204,19 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 	}
 	r.clients[userID] = &clientInfo{conn: conn, edPub: edPub, x25519Pub: x25519Pub}
 	r.aliases[userID] = r.pickAlias()
+
+	// Update known peers directory (TTL 30 days)
+	r.knownPeers[userID] = &knownPeer{
+		EdPub:     fmt.Sprintf("%x", edPub),
+		X25519Pub: fmt.Sprintf("%x", x25519Pub),
+		UserID:    userID,
+		LastSeen:  time.Now().Unix(),
+		IsClipper: true, // will be set to false when they send a message
+	}
+	// Carry over hasSent status from previous connection
+	if kp, ok := r.knownPeers[userID]; ok && existed {
+		kp.IsClipper = !oldCI.hasSent
+	}
 
 	pending := r.pending[userID]
 	delete(r.pending, userID)
@@ -238,6 +270,10 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		if ci, ok := r.clients[userID]; ok {
 			ci.hasSent = true
 		}
+		if kp, ok := r.knownPeers[userID]; ok {
+			kp.IsClipper = false
+			kp.LastSeen = time.Now().Unix()
+		}
 		r.mu.Unlock()
 
 		frame := make([]byte, 20+len(msgData))
@@ -286,6 +322,74 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		delete(r.aliases, userID)
 	}
 	r.mu.Unlock()
+}
+
+// handleDirectory returns ALL known peers (ever connected, TTL 30 days) with online/offline status.
+func (r *relay) handleDirectory(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	r.mu.RLock()
+	type directoryEntry struct {
+		UserID    string `json:"userID"`
+		EdPub     string `json:"edPub"`
+		X25519Pub string `json:"x25519Pub"`
+		Online    bool   `json:"online"`
+		IsClipper bool   `json:"isClipper"`
+		LastSeen  int64  `json:"lastSeen"`
+		Alias     string `json:"alias,omitempty"`
+	}
+
+	entries := make([]directoryEntry, 0, len(r.knownPeers))
+	for uid, kp := range r.knownPeers {
+		_, isOnline := r.clients[uid]
+		alias := ""
+		if isOnline {
+			alias = r.aliases[uid]
+		}
+		entries = append(entries, directoryEntry{
+			UserID:    kp.UserID,
+			EdPub:     kp.EdPub,
+			X25519Pub: kp.X25519Pub,
+			Online:    isOnline,
+			IsClipper: kp.IsClipper,
+			LastSeen:  kp.LastSeen,
+			Alias:     alias,
+		})
+	}
+	r.mu.RUnlock()
+
+	// Count stats
+	onlineCount := 0
+	clipperCount := 0
+	for _, e := range entries {
+		if e.Online {
+			onlineCount++
+		}
+		if e.IsClipper {
+			clipperCount++
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"total":    len(entries),
+		"online":   onlineCount,
+		"clippers": clipperCount,
+		"peers":    entries,
+	})
+}
+
+// cleanupKnownPeers removes peers not seen for 30 days.
+func (r *relay) cleanupKnownPeers() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	cutoff := time.Now().Unix() - 30*24*3600
+	for uid, kp := range r.knownPeers {
+		if kp.LastSeen < cutoff {
+			delete(r.knownPeers, uid)
+		}
+	}
 }
 
 // broadcastExcept sends a frame to all connected clients except the given userID.
