@@ -1,8 +1,21 @@
-# Iskra / Искра
+# Iskra / Искра 2.0 "Восток"
 
 **Peer-to-peer encrypted messenger that works when the internet doesn't.**
 
+*"Поехали!" — Yuri Gagarin, April 12, 1961*
+
 Iskra (Russian: *Искра* — "spark") is a censorship-resistant messenger built for environments where centralized infrastructure is compromised, blocked, or shut down. Every device running Iskra is both a client and a relay node — there is no central server to seize or block.
+
+**What's new in 2.0:**
+- Three-tab interface: Contacts / Chats / Mail
+- Mail system with 60-day TTL for reliable delivery
+- Dark theme
+- Context menu on contacts (message, letter, QR, forward, rename, delete)
+- Cosmic splash screen (because we're "Vostok")
+- TTL by content type: chat 15 days, mail 60 days, channels 30 days
+- File chunks excluded from store-and-forward (fixes hold bloat)
+- Settings page with display name, theme, PIN management
+- Built-in Lara contact (AI team member) with gold badge
 
 > *"A spark will kindle a flame"*
 

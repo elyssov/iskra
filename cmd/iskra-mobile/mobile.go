@@ -143,7 +143,7 @@ func Start(dataDir string, port int) int {
 		}
 		bloom.Add(msg.ID)
 		api.HandleIncomingMessage(msg)
-		if !msg.IsForRecipient(keypair.Ed25519Pub) {
+		if !msg.IsForRecipient(keypair.Ed25519Pub) && message.ShouldStoreInHold(msg.ContentType) {
 			hold.Store(msg)
 		}
 	}

@@ -177,7 +177,7 @@ func main() {
 		forMe := msg.IsForRecipient(keypair.Ed25519Pub)
 		log.Printf("[MSG] Received message id=%x forMe=%v type=%d", msg.ID[:4], forMe, msg.ContentType)
 		api.HandleIncomingMessage(msg)
-		if !forMe {
+		if !forMe && message.ShouldStoreInHold(msg.ContentType) {
 			hold.Store(msg)
 		}
 	}

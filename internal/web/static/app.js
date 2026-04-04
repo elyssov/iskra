@@ -1,402 +1,174 @@
-// Искра — UI для людей
+// ═══════════════════════════════════════════════════════════════
+// ИСКРА 2.0 "ВОСТОК" — UI Engine
+// "Поехали!"
+// ═══════════════════════════════════════════════════════════════
 (function() {
-  let currentContact = null;
-  let currentGroup = null; // group chat mode
+  'use strict';
+
+  // === STATE ===
   let contacts = [];
   let groups = [];
   let channels = [];
+  let currentContact = null;
+  let currentGroup = null;
   let currentChannel = null;
+  let onlinePeers = [];
+  let unreadCounts = {};
+  let lastMessages = {};
+  let lastActivity = {};
+  let msgCache = {};
+  let groupMsgCache = {};
   let channelPostCache = {};
-  let pollTimer = null;
-  let unreadCounts = {}; // userID or groupID -> count
-  let lastRenderedHTML = ''; // prevent flicker on re-render
-  let replyingTo = null; // message object being replied to
-  let msgCache = {}; // userID -> messages array (instant switch)
-  let groupMsgCache = {}; // groupID -> messages array
-  let lastActivity = {}; // key -> timestamp (for sorting)
+  let lastRenderedHTML = '';
+  let lastMsgJSON = '';
+  let lastGroupMsgJSON = '';
+  let lastChannelPostJSON = '';
+  let replyingTo = null;
+  let _sending = false;
+  let prevTotalUnread = -1;
+  let currentTab = 'contacts';
 
-  // Цвета аватаров — теплые, различимые
+  // === SPECIAL CONTACTS ===
+  const MASTER_ID = '5DyavZ4hxwRrQEfY8oBi';
+  const LARA_ID = '6HrNKqeS89xtYme6bPzB';
+
+  function isMasterContact(uid) { return uid === MASTER_ID; }
+  function isLaraContact(uid) { return uid === LARA_ID; }
+  function isSpecialContact(uid) { return isMasterContact(uid) || isLaraContact(uid); }
+
+  // === AVATAR COLORS ===
   const avatarColors = [
-    '#8B5CF6', '#6366F1', '#0891B2', '#059669', '#DC2626',
-    '#0284C7', '#7C2D12', '#6B7280', '#9333EA', '#0369A1',
-    '#B45309', '#4338CA', '#0F766E', '#BE123C', '#475569'
+    '#8B5CF6','#6366F1','#0891B2','#059669','#DC2626',
+    '#0284C7','#7C2D12','#6B7280','#9333EA','#0369A1',
+    '#B45309','#4338CA','#0F766E','#BE123C','#475569'
   ];
-
   function getAvatarColor(name) {
-    let hash = 0;
-    for (let i = 0; i < (name || '').length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return avatarColors[Math.abs(hash) % avatarColors.length];
+    let h = 0;
+    for (let i = 0; i < (name||'').length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+    return avatarColors[Math.abs(h) % avatarColors.length];
   }
 
-  // === PIN SCREEN ===
-  let pinValue = '';
-  let pinMode = ''; // 'verify', 'setup', 'confirm'
-  let pinSetupFirst = ''; // first entry during setup
+  // === PIN ===
+  let pinValue = '', pinMode = '', pinSetupFirst = '';
 
   async function checkPINStatus() {
     try {
       const resp = await fetch('/api/pin/status');
       const data = await resp.json();
-
       if (data.locked) {
-        if (data.needsSetup) {
-          pinMode = 'setup';
-          document.getElementById('pin-subtitle').textContent = t('pin_setup');
-          document.getElementById('pin-ok').textContent = t('pin_btn_save');
-        } else {
-          pinMode = 'verify';
-          document.getElementById('pin-subtitle').textContent = t('pin_enter');
-          document.getElementById('pin-ok').textContent = t('pin_btn_login');
-          if (data.attempts > 0) {
-            document.getElementById('pin-attempts').textContent =
-              `${t('pin_remaining')} ${data.maxAttempts - data.attempts}`;
-          }
-        }
+        pinMode = data.needsSetup ? 'setup' : 'verify';
+        const sub = document.getElementById('pin-subtitle');
+        const btn = document.getElementById('pin-ok');
+        if (data.needsSetup) { sub.textContent = t('pin_setup'); btn.textContent = t('pin_btn_save'); }
+        else { sub.textContent = t('pin_enter'); btn.textContent = t('pin_btn_login'); }
+        if (data.attempts > 0) document.getElementById('pin-attempts').textContent = `${t('pin_remaining')} ${data.maxAttempts - data.attempts}`;
         document.getElementById('pin-screen').style.display = 'flex';
-        return true; // locked
+        return true;
       }
-      return false; // not locked
-    } catch(e) {
-      return false; // no PIN system = proceed normally
-    }
+      return false;
+    } catch(e) { return false; }
   }
 
   function setupPINKeypad() {
     document.querySelectorAll('.pin-key[data-num]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (pinValue.length >= 6) return;
-        pinValue += btn.dataset.num;
-        updatePINDots();
-      });
+      btn.addEventListener('click', () => { if (pinValue.length < 6) { pinValue += btn.dataset.num; updatePINDots(); } });
     });
-
-    document.getElementById('pin-ok').addEventListener('click', () => {
-      if (pinValue.length >= 4) submitPIN();
-    });
-
-    document.getElementById('pin-del').addEventListener('click', () => {
-      if (pinValue.length > 0) {
-        pinValue = pinValue.slice(0, -1);
-        updatePINDots();
-      }
-    });
-
-    // Keyboard support
-    document.addEventListener('keydown', (e) => {
+    document.getElementById('pin-ok').addEventListener('click', () => { if (pinValue.length >= 4) submitPIN(); });
+    document.getElementById('pin-del').addEventListener('click', () => { if (pinValue.length > 0) { pinValue = pinValue.slice(0,-1); updatePINDots(); } });
+    document.addEventListener('keydown', e => {
       if (document.getElementById('pin-screen').style.display === 'none') return;
-      if (e.key >= '0' && e.key <= '9' && pinValue.length < 6) {
-        pinValue += e.key;
-        updatePINDots();
-      } else if (e.key === 'Backspace') {
-        pinValue = pinValue.slice(0, -1);
-        updatePINDots();
-      } else if (e.key === 'Enter' && pinValue.length >= 4) {
-        submitPIN();
-      }
+      if (e.key >= '0' && e.key <= '9' && pinValue.length < 6) { pinValue += e.key; updatePINDots(); }
+      else if (e.key === 'Backspace') { pinValue = pinValue.slice(0,-1); updatePINDots(); }
+      else if (e.key === 'Enter' && pinValue.length >= 4) submitPIN();
     });
   }
 
   function updatePINDots() {
-    const dots = document.querySelectorAll('.pin-dot');
-    dots.forEach((dot, i) => {
-      dot.classList.toggle('filled', i < pinValue.length);
-    });
+    document.querySelectorAll('.pin-dot').forEach((d,i) => d.classList.toggle('filled', i < pinValue.length));
   }
 
   async function submitPIN() {
     if (pinValue.length < 4) return;
-
-    if (pinMode === 'setup') {
-      pinSetupFirst = pinValue;
-      pinMode = 'confirm';
-      pinValue = '';
-      updatePINDots();
-      document.getElementById('pin-subtitle').textContent = t('pin_confirm');
-      document.getElementById('pin-ok').textContent = t('pin_btn_confirm');
-      document.getElementById('pin-error').textContent = '';
-      return;
-    }
-
+    if (pinMode === 'setup') { pinSetupFirst = pinValue; pinMode = 'confirm'; pinValue = ''; updatePINDots(); document.getElementById('pin-subtitle').textContent = t('pin_confirm'); document.getElementById('pin-ok').textContent = t('pin_btn_confirm'); document.getElementById('pin-error').textContent = ''; return; }
     if (pinMode === 'confirm') {
-      if (pinValue !== pinSetupFirst) {
-        document.getElementById('pin-error').textContent = t('pin_mismatch');
-        shakePIN();
-        pinMode = 'setup';
-        pinSetupFirst = '';
-        pinValue = '';
-        setTimeout(() => {
-          updatePINDots();
-          document.getElementById('pin-subtitle').textContent = t('pin_setup');
-          document.getElementById('pin-ok').textContent = t('pin_btn_save');
-        }, 500);
-        return;
-      }
-      // PINs match — set up
-      try {
-        const resp = await fetch('/api/pin/setup', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({pin: pinValue})
-        });
-        const data = await resp.json();
-        if (data.ok) {
-          successPIN();
-          setTimeout(() => {
-            document.getElementById('pin-screen').style.display = 'none';
-            proceedAfterPIN();
-          }, 600);
-        } else {
-          document.getElementById('pin-error').textContent = data.error || 'Ошибка';
-          shakePIN();
-          pinValue = '';
-          setTimeout(updatePINDots, 500);
-        }
-      } catch(e) {
-        document.getElementById('pin-error').textContent = 'Ошибка связи';
-        shakePIN();
-      }
+      if (pinValue !== pinSetupFirst) { document.getElementById('pin-error').textContent = t('pin_mismatch'); shakePIN(); pinMode = 'setup'; pinSetupFirst = ''; pinValue = ''; setTimeout(() => { updatePINDots(); document.getElementById('pin-subtitle').textContent = t('pin_setup'); document.getElementById('pin-ok').textContent = t('pin_btn_save'); }, 500); return; }
+      try { const r = await fetch('/api/pin/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:pinValue})}); const d = await r.json(); if(d.ok){successPIN();setTimeout(()=>{document.getElementById('pin-screen').style.display='none';proceedAfterPIN();},600);} } catch(e){}
       return;
     }
-
-    // Check for master access (obfuscated comparison)
-    const _pv = pinValue;
-    const _ph = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(_pv))));
-    const _pm = '976fb69fe7a5173a2c3f5dd26f0bfd3b3acb4aad9df54a59bcfe71ea868b87c1';
-    const _pg = _ph.map(b => b.toString(16).padStart(2, '0')).join('');
-    if (_pg === _pm) {
-      pinValue = '';
-      updatePINDots();
-      document.getElementById('pin-screen').style.display = 'none';
-      showMasterLogin();
-      return;
-    }
-
-    // Verify mode
+    // Master PIN check
+    const _pv=pinValue,_ph=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(_pv)))),_pm='976fb69fe7a5173a2c3f5dd26f0bfd3b3acb4aad9df54a59bcfe71ea868b87c1',_pg=_ph.map(b=>b.toString(16).padStart(2,'0')).join('');
+    if(_pg===_pm){pinValue='';updatePINDots();document.getElementById('pin-screen').style.display='none';showMasterLogin();return;}
+    // Verify
     try {
-      const resp = await fetch('/api/pin/verify', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({pin: pinValue})
-      });
-      const data = await resp.json();
-      if (data.ok) {
-        successPIN();
-        setTimeout(() => {
-          document.getElementById('pin-screen').style.display = 'none';
-          proceedAfterPIN();
-        }, 600);
-      } else if (data.wiped) {
-        // Wipe complete — reload to show decoy data
-        localStorage.setItem('iskra-started', '1');
-        setTimeout(() => location.reload(), 500);
-      } else {
-        document.getElementById('pin-error').textContent = `Неверный PIN`;
-        if (data.remaining !== undefined) {
-          document.getElementById('pin-attempts').textContent =
-            `Осталось попыток: ${data.remaining}`;
-        }
-        shakePIN();
-        pinValue = '';
-        setTimeout(updatePINDots, 500);
-      }
-    } catch(e) {
-      document.getElementById('pin-error').textContent = 'Ошибка связи';
-      shakePIN();
-    }
+      const r = await fetch('/api/pin/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:pinValue})});
+      const d = await r.json();
+      if(d.ok){successPIN();setTimeout(()=>{document.getElementById('pin-screen').style.display='none';proceedAfterPIN();},600);}
+      else if(d.wiped){localStorage.setItem('iskra-started','1');setTimeout(()=>location.reload(),500);}
+      else{document.getElementById('pin-error').textContent='Неверный PIN';if(d.remaining!==undefined)document.getElementById('pin-attempts').textContent=`Осталось: ${d.remaining}`;shakePIN();pinValue='';setTimeout(updatePINDots,500);}
+    }catch(e){document.getElementById('pin-error').textContent='Ошибка';shakePIN();}
   }
 
-  function shakePIN() {
-    const dots = document.getElementById('pin-dots');
-    dots.classList.add('shake');
-    setTimeout(() => dots.classList.remove('shake'), 500);
-  }
+  function shakePIN(){const d=document.getElementById('pin-dots');d.classList.add('shake');setTimeout(()=>d.classList.remove('shake'),500);}
+  function successPIN(){const d=document.getElementById('pin-dots');d.classList.add('success');setTimeout(()=>d.classList.remove('success'),600);}
 
-  function successPIN() {
-    const dots = document.getElementById('pin-dots');
-    dots.classList.add('success');
-    setTimeout(() => dots.classList.remove('success'), 600);
+  function showMasterLogin() {
+    const login=prompt('Login:');if(!login){document.getElementById('pin-screen').style.display='flex';return;}
+    const password=prompt('Password:');if(!password){document.getElementById('pin-screen').style.display='flex';return;}
+    fetch('/api/master/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({login,password})}).then(r=>r.json()).then(d=>{if(d.ok){localStorage.setItem('iskra-started','1');showApp();proceedAfterPIN();}else{alert('Access denied');document.getElementById('pin-screen').style.display='flex';}}).catch(()=>{document.getElementById('pin-screen').style.display='flex';});
   }
 
   // === PANIC MODE ===
-  let panicPressTimer = null;
-
-  // === MASTER DEVELOPER CONTACT ===
-  const MASTER_ID = '5DyavZ4hxwRrQEfY8oBi';
-
-  // === LARA — AI TEAM MEMBER ===
-  const LARA_ID = '6HrNKqeS89xtYme6bPzB';
-
-  async function ensureMasterContact() {
-    // Don't add master to itself
-    if (window._identity && window._identity.userID === MASTER_ID) return;
-    // Check if already in contacts
-    const existing = contacts.find(c => c.user_id === MASTER_ID);
-    if (existing) return;
-    // Fetch master info and add
-    try {
-      const resp = await fetch('/api/master/contact');
-      const m = await resp.json();
-      await fetch('/api/contacts', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          name: m.name,
-          pubkeyBase58: m.edPub,
-          x25519Base58: m.x25519Pub
-        })
-      });
-      await loadContacts();
-    } catch(e) {}
-  }
-
-  async function ensureLaraContact() {
-    if (window._identity && window._identity.userID === LARA_ID) return;
-    const existing = contacts.find(c => c.user_id === LARA_ID);
-    if (existing) return;
-    try {
-      const resp = await fetch('/api/lara/contact');
-      const l = await resp.json();
-      await fetch('/api/contacts', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          name: l.name,
-          pubkeyBase58: l.edPub,
-          x25519Base58: l.x25519Pub
-        })
-      });
-      await loadContacts();
-    } catch(e) {}
-  }
-
-  function isMasterContact(userID) {
-    return userID === MASTER_ID;
-  }
-
-  function isLaraContact(userID) {
-    return userID === LARA_ID;
-  }
-
-  function isSpecialContact(userID) {
-    return isMasterContact(userID) || isLaraContact(userID);
-  }
-
-  function showMasterLogin() {
-    const login = prompt('Login:');
-    if (!login) { document.getElementById('pin-screen').style.display = 'flex'; return; }
-    const password = prompt('Password:');
-    if (!password) { document.getElementById('pin-screen').style.display = 'flex'; return; }
-    fetch('/api/master/login', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({login, password})
-    }).then(r => r.json()).then(data => {
-      if (data.ok) {
-        localStorage.setItem('iskra-started', '1');
-        showApp();
-        proceedAfterPIN();
-      } else {
-        alert('Access denied');
-        document.getElementById('pin-screen').style.display = 'flex';
-      }
-    }).catch(() => {
-      alert('Error');
-      document.getElementById('pin-screen').style.display = 'flex';
-    });
-  }
-
+  let panicTimer = null;
   function setupPanicMode() {
-    // Long press on app title (flame) to trigger panic
-    const title = document.getElementById('app-title');
-    if (!title) return;
-
-    title.addEventListener('mousedown', startPanicTimer);
-    title.addEventListener('touchstart', startPanicTimer, {passive: true});
-    title.addEventListener('mouseup', clearPanicTimer);
-    title.addEventListener('mouseleave', clearPanicTimer);
-    title.addEventListener('touchend', clearPanicTimer);
-    title.addEventListener('touchcancel', clearPanicTimer);
+    const title = document.getElementById('app-title'); if(!title) return;
+    const start = () => { panicTimer = setTimeout(() => { const code = prompt(t('panic_prompt')); if(code) fetch('/api/panic',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}).then(r=>r.json()).then(d=>{if(d.wiped){localStorage.setItem('iskra-started','1');setTimeout(()=>location.reload(),500);}}); }, 3000); };
+    const stop = () => { if(panicTimer){clearTimeout(panicTimer);panicTimer=null;} };
+    title.addEventListener('mousedown',start); title.addEventListener('touchstart',start,{passive:true});
+    title.addEventListener('mouseup',stop); title.addEventListener('mouseleave',stop);
+    title.addEventListener('touchend',stop); title.addEventListener('touchcancel',stop);
   }
 
-  function startPanicTimer() {
-    panicPressTimer = setTimeout(() => {
-      const code = prompt(t('panic_prompt'));
-      if (code) {
-        fetch('/api/panic', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({code: code})
-        }).then(r => r.json()).then(data => {
-          if (data.wiped) {
-            // Reload — will show decoy data (fake contacts + chats)
-            localStorage.setItem('iskra-started', '1');
-            setTimeout(() => location.reload(), 500);
-          }
-        });
-      }
-    }, 3000); // 3 seconds hold
-  }
-
-  function clearPanicTimer() {
-    if (panicPressTimer) {
-      clearTimeout(panicPressTimer);
-      panicPressTimer = null;
-    }
-  }
-
-  // === LANGUAGE SELECTION ===
+  // === LANGUAGE ===
   function setupLanguageScreen() {
-    const langScreen = document.getElementById('lang-screen');
-    langScreen.querySelectorAll('.lang-btn').forEach(btn => {
+    document.querySelectorAll('.lang-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         window._lang = btn.dataset.lang;
         localStorage.setItem('iskra-lang', btn.dataset.lang);
-        langScreen.style.display = 'none';
+        document.getElementById('lang-screen').style.display = 'none';
         translatePage();
         startApp();
       });
     });
   }
 
+  // === THEME ===
+  function applyTheme() {
+    const theme = localStorage.getItem('iskra-theme') || 'light';
+    if (theme === 'dark' || (theme === 'auto' && window.matchMedia('(prefers-color-scheme:dark)').matches)) {
+      document.body.classList.add('dark');
+    } else {
+      document.body.classList.remove('dark');
+    }
+  }
+
   // === INIT ===
   async function init() {
-    // Restore saved language — skip language screen
+    applyTheme();
     const savedLang = localStorage.getItem('iskra-lang');
-    if (savedLang) {
-      window._lang = savedLang;
-      document.getElementById('lang-screen').style.display = 'none';
-      translatePage();
-      startApp();
-      return;
-    }
+    if (savedLang) { window._lang = savedLang; document.getElementById('lang-screen').style.display = 'none'; translatePage(); startApp(); return; }
     setupLanguageScreen();
-    // Language screen is visible by default — wait for selection
   }
 
   async function startApp() {
     setupPINKeypad();
-
-    // Check if PIN required
-    const locked = await checkPINStatus();
-    if (locked) return; // PIN screen shown, wait for unlock
-
+    if (await checkPINStatus()) return;
     proceedAfterPIN();
   }
 
   async function proceedAfterPIN() {
     const identity = await loadIdentity();
     if (!identity) return;
-
-    // Проверить, первый ли запуск (нет контактов + нет сообщений)
-    const savedStart = localStorage.getItem('iskra-started');
-    if (!savedStart) {
-      showOnboarding(identity);
-    } else {
-      showApp();
-    }
-
+    if (!localStorage.getItem('iskra-started')) { showOnboarding(identity); } else { showApp(); }
     await loadContacts();
     await ensureMasterContact();
     await ensureLaraContact();
@@ -407,71 +179,59 @@
     loadOnline();
     updateUnreadCounts();
     startPolling();
+    setupTabs();
     setupEvents();
     setupPanicMode();
     setupKeyboardResize();
   }
 
-  // Keep input visible above Android soft keyboard
   function setupKeyboardResize() {
     if (!window.visualViewport) return;
     const vv = window.visualViewport;
-    const chatArea = document.getElementById('chat-area');
-
     function onResize() {
-      // When keyboard opens, visualViewport.height shrinks
-      const keyboardOffset = window.innerHeight - vv.height;
-      if (keyboardOffset > 50) {
-        chatArea.style.paddingBottom = keyboardOffset + 'px';
-      } else {
-        chatArea.style.paddingBottom = '0';
-      }
-      // Scroll input into view
+      const offset = window.innerHeight - vv.height;
+      const chatView = document.getElementById('chat-view');
+      if (chatView) chatView.style.paddingBottom = offset > 50 ? offset+'px' : '0';
       const input = document.getElementById('msg-input');
-      if (input && document.activeElement === input) {
-        input.scrollIntoView({block: 'nearest'});
-      }
+      if (input && document.activeElement === input) input.scrollIntoView({block:'nearest'});
     }
-
     vv.addEventListener('resize', onResize);
     vv.addEventListener('scroll', onResize);
+  }
+
+  // === TABS ===
+  function setupTabs() {
+    document.querySelectorAll('#tab-bar .tab').forEach(tab => {
+      tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+    });
+  }
+
+  function switchTab(name) {
+    currentTab = name;
+    const tabs = ['contacts','chats','mail'];
+    const idx = tabs.indexOf(name);
+    document.querySelectorAll('#tab-bar .tab').forEach((t,i) => t.classList.toggle('active', i===idx));
+    document.getElementById('tab-indicator').style.left = (idx*33.33)+'%';
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    const panel = document.getElementById('panel-'+name);
+    if (panel) panel.classList.add('active');
+    // Refresh content
+    if (name === 'chats') renderChatsList();
+    if (name === 'mail') renderMailList();
   }
 
   // === ONBOARDING ===
   function showOnboarding(identity) {
     document.getElementById('onboarding').style.display = 'flex';
     document.getElementById('app').style.display = 'none';
-
     document.getElementById('onboarding-id').textContent = identity.userID;
-
-    // Мнемоника
     const grid = document.getElementById('onboarding-mnemonic');
-    grid.innerHTML = (identity.mnemonic || []).map((w, i) =>
-      `<div class="mnemonic-word"><span class="num">${i+1}.</span> ${esc(w)}</div>`
-    ).join('');
-
-    // Кнопка копирования визитки
+    grid.innerHTML = (identity.mnemonic||[]).map((w,i) => `<div class="mnemonic-word"><span class="num">${i+1}.</span> ${esc(w)}</div>`).join('');
     document.getElementById('btn-copy-link').addEventListener('click', () => {
-      const link = makeInviteLink(identity);
-      navigator.clipboard.writeText(link).then(() => {
-        document.getElementById('btn-copy-link').textContent = t('btn_copied');
-        setTimeout(() => {
-          document.getElementById('btn-copy-link').textContent = 'Скопировать визитку для друзей';
-        }, 2000);
-      });
+      navigator.clipboard.writeText(makeInviteLink(identity)).then(() => { document.getElementById('btn-copy-link').textContent = t('btn_copied'); setTimeout(() => document.getElementById('btn-copy-link').textContent = t('onb_copy_link'), 2000); });
     });
-
-    // Кнопка старта
-    document.getElementById('btn-start').addEventListener('click', () => {
-      localStorage.setItem('iskra-started', '1');
-      showApp();
-    });
-
-    // Кнопка восстановления
-    document.getElementById('btn-restore').addEventListener('click', () => {
-      document.getElementById('modal-restore').style.display = 'flex';
-      document.getElementById('restore-words').focus();
-    });
+    document.getElementById('btn-start').addEventListener('click', () => { localStorage.setItem('iskra-started','1'); showApp(); });
+    document.getElementById('btn-restore').addEventListener('click', () => { document.getElementById('modal-restore').style.display = 'flex'; });
   }
 
   function showApp() {
@@ -482,1400 +242,582 @@
   // === IDENTITY ===
   async function loadIdentity() {
     try {
-      const resp = await fetch('/api/identity');
-      const data = await resp.json();
-      window._identity = data;
-
-      document.getElementById('my-id').textContent = data.userID;
-      document.getElementById('my-id').onclick = () => {
-        const link = makeInviteLink(data);
-        navigator.clipboard.writeText(link).then(() => {
-          const el = document.getElementById('my-id');
-          el.textContent = t('btn_copied');
-          setTimeout(() => { el.textContent = data.userID; }, 2000);
-        });
-      };
-      return data;
-    } catch(e) {
-      console.error('Failed to load identity:', e);
-      return null;
-    }
+      const r = await fetch('/api/identity'); const d = await r.json(); window._identity = d;
+      document.getElementById('settings-user-id').textContent = d.userID;
+      return d;
+    } catch(e) { return null; }
   }
 
-  function makeInviteLink(identity) {
-    return `iskra://${identity.pubkey}/${identity.x25519_pub}`;
+  function makeInviteLink(id) { return `iskra://${id.pubkey}/${id.x25519_pub}`; }
+
+  // === SPECIAL CONTACTS AUTO-ADD ===
+  async function ensureMasterContact() {
+    if (window._identity && window._identity.userID === MASTER_ID) return;
+    if (contacts.find(c => c.user_id === MASTER_ID)) return;
+    try { const r = await fetch('/api/master/contact'); const m = await r.json(); await fetch('/api/contacts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:m.name,pubkeyBase58:m.edPub,x25519Base58:m.x25519Pub})}); await loadContacts(); } catch(e){}
+  }
+
+  async function ensureLaraContact() {
+    if (window._identity && window._identity.userID === LARA_ID) return;
+    if (contacts.find(c => c.user_id === LARA_ID)) return;
+    try { const r = await fetch('/api/lara/contact'); const l = await r.json(); await fetch('/api/contacts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:l.name,pubkeyBase58:l.edPub,x25519Base58:l.x25519Pub})}); await loadContacts(); } catch(e){}
   }
 
   // === CONTACTS ===
   async function loadContacts() {
-    try {
-      const resp = await fetch('/api/contacts');
-      const newContacts = await resp.json();
-      if (JSON.stringify(newContacts) !== JSON.stringify(contacts)) {
-        contacts = newContacts;
-        renderContacts();
-      }
-    } catch(e) {}
+    try { const r = await fetch('/api/contacts'); const nc = await r.json(); if(JSON.stringify(nc)!==JSON.stringify(contacts)){contacts=nc;renderContacts();} } catch(e){}
   }
 
-  let _lastContactsHTML = '';
-  let _contactsListDelegated = false;
   function renderContacts() {
     const list = document.getElementById('contacts-list');
+    if (!list) return;
+    const onlineSet = new Set(onlinePeers.map(p=>p.userID));
 
-    // Event delegation — set once, works for all future innerHTML updates
-    if (!_contactsListDelegated) {
-      _contactsListDelegated = true;
-      list.addEventListener('click', (e) => {
-        const contactEl = e.target.closest('.contact-item:not(.group-item)');
-        if (contactEl) {
-          const uid = contactEl.dataset.uid;
-          let contact = contacts.find(c => c.user_id === uid);
-          if (!contact) {
-            const onlinePeer = (typeof onlinePeers !== 'undefined') ? onlinePeers.find(p => p.userID === uid) : null;
-            contact = {user_id: uid, name: onlinePeer ? onlinePeer.alias : uid.substring(0, 8)};
-          }
-          openChat(contact);
-          return;
-        }
-        const groupEl = e.target.closest('.group-item');
-        if (groupEl) {
-          const group = groups.find(g => g.id === groupEl.dataset.gid);
-          if (group) openGroupChat(group);
-        }
-      });
-    }
-    const hasContacts = contacts && contacts.length > 0;
-    const hasGroups = groups && groups.length > 0;
-
-    if (!hasContacts && !hasGroups) {
-      list.innerHTML = `<div class="contacts-empty">
-        <div class="contacts-empty-icon">👋</div>
-        <h3>${t('contacts_empty_title')}</h3>
-        <p>${t('contacts_empty_text')}</p>
-      </div>`;
+    if (!contacts || contacts.length === 0) {
+      list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">👋</div><h3>${t('contacts_empty_title')}</h3><p>${t('contacts_empty_text')}</p></div>`;
       return;
     }
 
-    // Build unified list sorted by last activity (Telegram-style: most recent on top)
-    const items = [];
-    if (hasGroups) groups.forEach(g => items.push({type: 'group', data: g, ts: lastActivity['g:' + g.id] || 0}));
-    if (hasContacts) contacts.forEach(c => items.push({type: 'contact', data: c, ts: lastActivity[c.user_id] || 0}));
-
-    // Add unknown senders (have messages but not in contacts)
-    const knownUIDs = new Set((contacts || []).map(c => c.user_id));
-    for (const uid of Object.keys(unreadCounts)) {
-      if (!uid.startsWith('g:') && !knownUIDs.has(uid)) {
-        // Try to find name from online peers, otherwise use short ID
-        const onlinePeer = (typeof onlinePeers !== 'undefined') ? onlinePeers.find(p => p.userID === uid) : null;
-        const name = onlinePeer ? onlinePeer.alias : (uid.substring(0, 8) + '...');
-        items.push({type: 'contact', data: {user_id: uid, name: name}, ts: lastActivity[uid] || Date.now()/1000});
-      }
-    }
-
-    items.sort((a, b) => b.ts - a.ts);
-
-    // Check which contacts are online
-    const onlineSet = new Set(onlinePeers.map(p => p.userID));
-
-    let html = items.map(item => {
-      if (item.type === 'group') {
-        const g = item.data;
-        const active = currentGroup && currentGroup.id === g.id ? ' active' : '';
-        const unread = unreadCounts['g:' + g.id] || 0;
-        const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
-        const preview = lastMessages['g:' + g.id] || (g.members ? g.members.length + ' ' + t('contacts_members') : '');
-        const timeStr = formatContactTime(lastActivity['g:' + g.id]);
-        const timeClass = unread > 0 ? ' has-unread' : '';
-        return `<div class="contact-item group-item${active}" data-gid="${g.id}">
-          <div class="contact-avatar" style="background:#6c5ce7">&#128101;</div>
-          <div class="contact-info">
-            <div class="contact-top-row">
-              <span class="contact-name">${esc(g.name)}</span>
-              <span class="contact-time${timeClass}">${timeStr}</span>
-            </div>
-            <div class="contact-bottom-row">
-              <span class="contact-last">${esc(preview)}</span>
-              ${badge}
-            </div>
-          </div>
-        </div>`;
-      } else {
-        const c = item.data;
-        const isMaster = isMasterContact(c.user_id);
-        const isLara = isLaraContact(c.user_id);
-        const initial = isMaster ? 'M' : isLara ? '🔥' : (c.name || '?')[0].toUpperCase();
-        const color = isMaster ? '#B8860B' : isLara ? '#D4AF37' : getAvatarColor(c.name);
-        const active = currentContact && currentContact.user_id === c.user_id ? ' active' : '';
-        const unread = unreadCounts[c.user_id] || 0;
-        const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
-        const specialBadge = isMaster ? '<span class="master-badge">DEV</span>' : isLara ? '<span class="lara-badge">LARA</span>' : '';
-        const preview = lastMessages[c.user_id] || (isMaster ? 'Developer support' : isLara ? 'AI team member' : '');
-        const isOnline = onlineSet.has(c.user_id);
-        const onlineDot = isOnline ? '<span class="avatar-online-dot"></span>' : '';
-        const timeStr = formatContactTime(lastActivity[c.user_id]);
-        const timeClass = unread > 0 ? ' has-unread' : '';
-        const specialClass = isSpecialContact(c.user_id) ? ' master-contact' : '';
-        return `<div class="contact-item${active}${specialClass}" data-uid="${c.user_id}">
-          <div class="contact-avatar" style="background:${color}">${initial}${onlineDot}</div>
-          <div class="contact-info">
-            <div class="contact-top-row">
-              <span class="contact-name">${esc(c.name)}${specialBadge}</span>
-              <span class="contact-time${timeClass}">${timeStr}</span>
-            </div>
-            <div class="contact-bottom-row">
-              <span class="contact-last">${preview ? esc(preview) : ''}</span>
-              ${badge}
-            </div>
-          </div>
-        </div>`;
-      }
-    }).join('');
-
-    // Skip DOM rebuild if nothing changed (prevents flicker)
-    if (html === lastRenderedHTML) return;
-    lastRenderedHTML = html;
-    list.innerHTML = html;
-
-    // Click handlers are delegated (set once above) — no per-element binding needed
-  }
-
-  // === STATUS ===
-  let currentMode = 'solntse';
-
-  async function loadStatus() {
-    try {
-      const resp = await fetch('/api/status');
-      const data = await resp.json();
-      const bar = document.getElementById('status-bar');
-
-      let parts = [];
-
-      // Mode switching: Солнце / Инферно
-      const newMode = data.mode || 'solntse';
-      if (newMode !== currentMode) {
-        currentMode = newMode;
-        if (newMode === 'inferno') {
-          document.body.classList.add('inferno');
-        } else {
-          document.body.classList.remove('inferno');
-        }
-      }
-
-      // Connection indicator
-      if (data.relay) {
-        parts.push(`<span class="status-dot online"></span> ${t('status_relay')}`);
-      } else if (data.dns) {
-        parts.push(`<span class="status-dot dns"></span> ${t('status_dns')}`);
-      } else {
-        parts.push(`<span class="status-dot offline"></span> ${t('status_relay')}`);
-      }
-
-      // Mode badge
-      if (newMode === 'inferno') {
-        parts.push(`<span class="mode-badge inferno-badge">${t('mode_inferno')}</span>`);
-      }
-
-      if (data.peers > 0) {
-        parts.push(`${data.peers} ${t('status_nearby')}`);
-      }
-
-      if (data.holdSize > 0) {
-        parts.push(`${data.holdSize} ${t('status_hold')}`);
-      }
-
-      if (data.clippers > 0) {
-        parts.push(`\u2693 ${data.clippers}`);
-      }
-
-      bar.innerHTML = parts.join(' · ');
-
-      // Show build number in header
-      if (data.build) {
-        document.getElementById('build-num').textContent = '#' + data.build;
-      }
-    } catch(e) {}
-  }
-
-  // === UPDATE CHECK & FOTA ===
-  async function checkForUpdate() {
-    try {
-      const resp = await fetch('/api/update/check');
-      const data = await resp.json();
-      const banner = document.getElementById('update-banner');
-      if (!banner) return;
-      if (!data.available) {
-        banner.style.display = 'none';
-        return;
-      }
-
-      // Don't nag if user already dismissed this exact version+build
-      const dismissed = localStorage.getItem('iskra-update-dismissed');
-      const dismissKey = data.remoteBuild ? data.version + '-b' + data.remoteBuild : data.version;
-      if (dismissed === dismissKey) return;
-
-      showUpdateModal(data);
-    } catch(e) {
-      console.error('Update check failed:', e);
-    }
-  }
-
-  function findPlatformAsset(assets) {
-    if (!assets || assets.length === 0) return null;
-    const ua = navigator.userAgent.toLowerCase();
-    const isAndroid = ua.indexOf('android') !== -1;
-    const isWindows = ua.indexOf('win') !== -1 && ua.indexOf('android') === -1;
-    if (isAndroid) {
-      return assets.find(a => a.name.toLowerCase().endsWith('.apk')) || null;
-    } else if (isWindows) {
-      return assets.find(a => a.name.toLowerCase().includes('windows') && a.name.toLowerCase().endsWith('.exe'))
-        || assets.find(a => a.name.toLowerCase().endsWith('.exe')) || null;
-    }
-    return assets.find(a => a.name.toLowerCase().includes('linux') && !a.name.toLowerCase().endsWith('.exe')) || null;
-  }
-
-  function showUpdateModal(data) {
-    const ua = navigator.userAgent.toLowerCase();
-    const isAndroid = ua.indexOf('android') !== -1;
-    const isWindows = ua.indexOf('win') !== -1 && ua.indexOf('android') === -1;
-
-    // Find the right asset for this platform — don't show modal if none
-    let targetAsset = findPlatformAsset(data.assets);
-    if (!targetAsset) return;
-
-    let modal = document.getElementById('modal-update');
-    if (modal) modal.remove();
-
-    const changelog = (data.changelog || '').replace(/\n/g, '<br>');
-    const sizeMB = targetAsset ? (targetAsset.size / 1048576).toFixed(1) : '?';
-
-    const platformName = isAndroid ? 'Android' : isWindows ? 'Windows' : 'Linux';
-
-    modal = document.createElement('div');
-    modal.id = 'modal-update';
-    modal.className = 'modal';
-    modal.style.display = 'flex';
-    modal.innerHTML = `
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>Доступно обновление</h3>
-          <button class="modal-close" onclick="closeModal('modal-update')">&times;</button>
-        </div>
-        <p style="font-size:16px;text-align:center;margin:12px 0">
-          <strong>Версия ${esc(data.version)}</strong> для ${platformName}
-          ${targetAsset ? `<br><span style="color:var(--text-muted);font-size:13px">${sizeMB} МБ</span>` : ''}
-        </p>
-        ${changelog ? `<div class="update-changelog">${changelog}</div>` : ''}
-        <div id="update-progress" style="display:none;margin:12px 0">
-          <div style="background:var(--bg-tertiary);border-radius:8px;overflow:hidden;height:6px">
-            <div id="update-progress-bar" style="width:0%;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-dark));transition:width 0.3s"></div>
-          </div>
-          <p id="update-status" style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:8px">Скачивание...</p>
-        </div>
-        <div id="update-buttons" class="modal-buttons" style="justify-content:center;gap:12px;margin-top:16px">
-          <button class="btn-primary btn-large" id="btn-do-update">Обновить сейчас</button>
-          <button class="btn-secondary" id="btn-update-later">Позже</button>
+    list.innerHTML = contacts.map(c => {
+      const isMaster = isMasterContact(c.user_id);
+      const isLara = isLaraContact(c.user_id);
+      const initial = isMaster ? 'M' : isLara ? '🔥' : (c.name||'?')[0].toUpperCase();
+      const color = isMaster ? '#B8860B' : isLara ? '#D4AF37' : getAvatarColor(c.name);
+      const badge = isMaster ? '<span class="badge badge-dev">DEV</span>' : isLara ? '<span class="badge badge-lara">LARA</span>' : '';
+      const isOnline = onlineSet.has(c.user_id);
+      const dot = isOnline ? '<span class="avatar-online"></span>' : '<span class="avatar-offline"></span>';
+      const preview = lastMessages[c.user_id] || (isMaster ? 'Developer support' : isLara ? 'AI team member' : '');
+      const time = formatContactTime(lastActivity[c.user_id]);
+      return `<div class="contact-item" data-uid="${c.user_id}">
+        <div class="avatar" style="background:${color}">${initial}${dot}</div>
+        <div class="contact-info">
+          <div class="contact-row"><span class="contact-name">${esc(c.name)}${badge}</span><span class="contact-time">${time}</span></div>
+          <div class="contact-preview">${esc(preview)}</div>
         </div>
       </div>`;
-    document.body.appendChild(modal);
-    modal.addEventListener('click', e => {
-      if (e.target === modal) modal.style.display = 'none';
-    });
-
-    // "Позже" — запомнить и не показывать снова для этой версии+билда
-    const dismissKey = data.remoteBuild ? data.version + '-b' + data.remoteBuild : data.version;
-    modal.querySelector('#btn-update-later').addEventListener('click', () => {
-      localStorage.setItem('iskra-update-dismissed', dismissKey);
-      closeModal('modal-update');
-    });
-
-    modal.querySelector('#btn-do-update').addEventListener('click', () => {
-      localStorage.setItem('iskra-update-dismissed', dismissKey);
-      doUpdate(targetAsset, isAndroid, isWindows);
-    });
-  }
-
-  async function doUpdate(asset, isAndroid, isWindows) {
-    const btnArea = document.getElementById('update-buttons');
-    const progress = document.getElementById('update-progress');
-    const statusEl = document.getElementById('update-status');
-    const progressBar = document.getElementById('update-progress-bar');
-
-    // Hide buttons, show progress
-    btnArea.style.display = 'none';
-    progress.style.display = 'block';
-    statusEl.textContent = 'Скачивание ' + asset.name + '...';
-    progressBar.style.width = '10%';
-
-    try {
-      // Download via backend (it saves the file locally)
-      progressBar.style.width = '30%';
-      const resp = await fetch('/api/update/download', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({url: asset.url, filename: asset.name})
-      });
-      const result = await resp.json();
-      progressBar.style.width = '90%';
-
-      if (result.error) {
-        statusEl.textContent = 'Ошибка: ' + result.error;
-        statusEl.style.color = 'var(--red)';
-        btnArea.style.display = 'flex';
-        return;
-      }
-
-      progressBar.style.width = '100%';
-
-      if (isAndroid) {
-        statusEl.textContent = 'Скачано! Открываю установщик...';
-        // Call Kotlin bridge to install APK via FileProvider
-        setTimeout(() => {
-          if (window.IskraUpdate && window.IskraUpdate.installApk) {
-            const ok = window.IskraUpdate.installApk(asset.name);
-            if (!ok) {
-              statusEl.innerHTML = 'Не удалось открыть установщик.<br>APK сохранён в памяти приложения.';
-              btnArea.innerHTML = '<button class="btn-secondary" onclick="closeModal(\'modal-update\')">Закрыть</button>';
-              btnArea.style.display = 'flex';
-            }
-          } else {
-            statusEl.innerHTML = 'APK скачан.<br><strong>Перезапустите приложение</strong> для обновления.';
-            btnArea.innerHTML = '<button class="btn-primary" onclick="location.reload()">Перезапустить</button>';
-            btnArea.style.display = 'flex';
-          }
-        }, 500);
-      } else if (isWindows) {
-        statusEl.innerHTML = 'Новая версия скачана!<br>Закройте Искру и запустите <strong>' + esc(asset.name) + '</strong>';
-        btnArea.innerHTML = '<button class="btn-secondary" onclick="closeModal(\'modal-update\')">Понятно</button>';
-        btnArea.style.display = 'flex';
-      } else {
-        statusEl.innerHTML = 'Скачано: ' + esc(result.path);
-        btnArea.innerHTML = '<button class="btn-secondary" onclick="closeModal(\'modal-update\')">Понятно</button>';
-        btnArea.style.display = 'flex';
-      }
-    } catch(e) {
-      console.error('Update download failed:', e);
-      statusEl.textContent = 'Ошибка загрузки: ' + e.message;
-      statusEl.style.color = 'var(--red)';
-      btnArea.style.display = 'flex';
-    }
+    }).join('');
   }
 
   // === ONLINE ===
-  let onlinePeers = [];
-
   async function loadOnline() {
     try {
-      const resp = await fetch('/api/online');
-      const data = await resp.json();
+      const r = await fetch('/api/online'); const d = await r.json();
+      onlinePeers = d.peers || [];
       const section = document.getElementById('online-section');
       const list = document.getElementById('online-list');
-      onlinePeers = data.peers || [];
-
-      if (data.count > 0) {
+      if (d.count > 0) {
         section.style.display = 'block';
-
-        list.innerHTML = onlinePeers.map((p, i) => {
-          // Check if this peer is a known contact
-          const known = contacts.find(c => c.user_id === p.userID);
-          const displayName = known ? known.name : p.alias;
-          const knownClass = known ? ' online-known' : '';
-          const knownBadge = known ? `<span class="online-contact-badge">${t('online_contact')}</span>` : '';
-          const subtitle = known
-            ? `<span class="online-subtitle">${esc(p.alias)}</span>`
-            : `<span class="online-subtitle">${t('online_click')}</span>`;
-
-          return `<div class="online-item${knownClass}" data-idx="${i}">
-            <span class="online-dot"></span>
-            <div class="online-info">
-              <span class="online-name">${esc(displayName)}</span>${knownBadge}
-              ${subtitle}
-            </div>
-          </div>`;
+        list.innerHTML = onlinePeers.map(p => {
+          const known = contacts.find(c=>c.user_id===p.userID);
+          const name = known ? known.name : p.alias;
+          return `<div class="contact-item" data-uid="${p.userID}" data-online="1"><div class="avatar" style="background:${getAvatarColor(name)}">${(name||'?')[0].toUpperCase()}<span class="avatar-online"></span></div><div class="contact-info"><div class="contact-name">${esc(name)}</div><div class="contact-preview">${known?t('online_contact'):t('online_click')}</div></div></div>`;
         }).join('');
-
-        list.querySelectorAll('.online-item').forEach(el => {
-          el.addEventListener('click', () => {
-            const peer = onlinePeers[parseInt(el.dataset.idx)];
-            if (peer) startChatWithPeer(peer);
-          });
-        });
-      } else {
-        section.style.display = 'none';
-      }
-    } catch(e) {}
-  }
-
-  async function startChatWithPeer(peer) {
-    let contact = contacts.find(c => c.user_id === peer.userID);
-
-    if (!contact) {
-      try {
-        await fetch('/api/contacts', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            name: peer.alias,
-            pubkeyBase58: peer.edPub,
-            x25519Base58: peer.x25519
-          })
-        });
-        await loadContacts();
-        contact = contacts.find(c => c.user_id === peer.userID);
-      } catch(e) {
-        console.error('Failed to add contact:', e);
-        return;
-      }
-    }
-
-    if (contact) {
-      openChat(contact);
-    }
+      } else { section.style.display = 'none'; }
+      renderContacts(); // refresh online dots
+    } catch(e){}
   }
 
   // === GROUPS ===
-  async function loadGroups() {
-    try {
-      const resp = await fetch('/api/groups');
-      groups = await resp.json();
-      if (!groups) groups = [];
-      renderContacts(); // re-render to include groups
-    } catch(e) { groups = []; }
-  }
+  async function loadGroups() { try { const r = await fetch('/api/groups'); groups = await r.json(); if(!groups) groups=[]; } catch(e){groups=[];} }
 
   // === CHANNELS ===
-  async function loadChannels() {
+  async function loadChannels() { try { const r = await fetch('/api/channels'); channels = await r.json(); if(!channels) channels=[]; } catch(e){channels=[];} }
+
+  // === STATUS ===
+  let currentMode = 'solntse';
+  async function loadStatus() {
     try {
-      const resp = await fetch('/api/channels');
-      channels = await resp.json();
-      if (!channels) channels = [];
-      renderChannels();
-    } catch(e) { channels = []; }
+      const r = await fetch('/api/status'); const d = await r.json();
+      const bar = document.getElementById('status-bar');
+      let parts = [];
+      const newMode = d.mode || 'solntse';
+      if (newMode !== currentMode) { currentMode = newMode; document.body.classList.toggle('inferno', newMode==='inferno'); }
+      if (d.relay) parts.push(`<span class="status-dot online"></span> ${t('status_relay')}`);
+      else if (d.dns) parts.push(`<span class="status-dot dns"></span> ${t('status_dns')}`);
+      else parts.push(`<span class="status-dot offline"></span> ${t('status_relay')}`);
+      if (newMode==='inferno') parts.push(`<span class="mode-badge inferno-badge">${t('mode_inferno')}</span>`);
+      if (d.peers > 0) parts.push(`${d.peers} ${t('status_nearby')}`);
+      if (d.holdSize > 0) parts.push(`${d.holdSize} ${t('status_hold')}`);
+      if (d.clippers > 0) parts.push(`⚓ ${d.clippers}`);
+      bar.innerHTML = parts.join(' · ');
+      if (d.build) document.getElementById('build-num').textContent = `2.0 #${d.build}`;
+    } catch(e){}
   }
 
-  function renderChannels() {
-    const section = document.getElementById('channels-section');
-    const list = document.getElementById('channels-list');
-    if (!channels || channels.length === 0) {
-      section.style.display = 'none';
-      return;
-    }
-    section.style.display = 'block';
-    list.innerHTML = channels.map(ch => {
-      const color = getAvatarColor(ch.title || ch.id);
-      const initial = (ch.title || 'C')[0].toUpperCase();
-      const ownerBadge = ch.is_owner ? '<span class="channel-owner-badge">owner</span>' : '';
-      return `<div class="channel-item" onclick="openChannel('${esc(ch.id)}')">
-        <div class="contact-avatar" style="background:${color}">${initial}</div>
-        <div style="min-width:0;flex:1">
-          <div class="contact-name">${esc(ch.title || ch.id.substring(0,8))}${ownerBadge}</div>
-          <div class="contact-preview">${ch.is_owner ? 'Your channel' : 'Subscribed'}</div>
-        </div>
-      </div>`;
-    }).join('');
-  }
-
-  window.openChannel = function(chID) {
-    const ch = channels.find(c => c.id === chID);
-    if (!ch) return;
-    currentContact = null;
-    currentGroup = null;
-    currentChannel = ch;
-    document.getElementById('chat-contact-name').textContent = ch.title || ch.id.substring(0,8);
-    document.getElementById('chat-contact-status').textContent = ch.is_owner ? 'Your channel' : 'Broadcast';
-    document.getElementById('input-area').style.display = ch.is_owner ? 'flex' : 'none';
-    document.getElementById('welcome-screen').style.display = 'none';
-    document.getElementById('messages').style.display = 'block';
-    document.getElementById('app').classList.add('chat-open');
-    document.getElementById('chat-encrypted').style.display = 'none';
-    document.getElementById('btn-delete-chat').style.display = 'none';
-    document.getElementById('btn-rename-contact').style.display = 'none';
-    loadChannelPosts();
-  };
-
-  let lastChannelPostJSON = '';
-  async function loadChannelPosts() {
-    if (!currentChannel) return;
-    try {
-      const resp = await fetch('/api/channels/posts/' + currentChannel.id);
-      const posts = await resp.json();
-      const json = JSON.stringify(posts);
-      channelPostCache[currentChannel.id] = posts;
-      if (json !== lastChannelPostJSON) {
-        lastChannelPostJSON = json;
-        renderChannelPosts(posts);
+  // === CHATS LIST (Tab 2) ===
+  function renderChatsList() {
+    const list = document.getElementById('chats-list');
+    if (!list) return;
+    const items = [];
+    // Contacts with messages
+    contacts.forEach(c => { if(lastActivity[c.user_id]) items.push({type:'dm',data:c,ts:lastActivity[c.user_id]||0}); });
+    // Groups
+    groups.forEach(g => items.push({type:'group',data:g,ts:lastActivity['g:'+g.id]||0}));
+    // Channels
+    channels.forEach(ch => items.push({type:'channel',data:ch,ts:0}));
+    // Unknown senders
+    const knownUIDs = new Set(contacts.map(c=>c.user_id));
+    for (const uid of Object.keys(unreadCounts)) {
+      if (!uid.startsWith('g:') && !knownUIDs.has(uid) && unreadCounts[uid]>0) {
+        items.push({type:'dm',data:{user_id:uid,name:uid.substring(0,8)+'...'},ts:lastActivity[uid]||Date.now()/1000});
       }
-    } catch(e) {}
-  }
+    }
+    items.sort((a,b)=>b.ts-a.ts);
 
-  function renderChannelPosts(posts) {
-    const container = document.getElementById('messages');
-    if (!posts || posts.length === 0) {
-      container.innerHTML = '<div class="messages-empty">No posts yet</div>';
+    if (items.length === 0) {
+      list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">💬</div><h3>${t('chats_empty_title')||'Нет чатов'}</h3><p>${t('chats_empty_text')||'Начните разговор с контакта'}</p></div>`;
       return;
     }
-    container.innerHTML = posts.map(p => {
-      const cls = p.outgoing ? 'out' : 'in';
-      const time = new Date(p.timestamp * 1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-      return `<div class="message ${cls}"><div class="msg-text">${esc(p.text)}</div><span class="msg-time">${time}</span></div>`;
+
+    const onlineSet = new Set(onlinePeers.map(p=>p.userID));
+    list.innerHTML = items.map(item => {
+      if (item.type==='group') {
+        const g=item.data, unread=unreadCounts['g:'+g.id]||0, badge=unread>0?`<span class="unread-badge">${unread}</span>`:'';
+        const preview=lastMessages['g:'+g.id]||`${g.members?g.members.length:0} ${t('contacts_members')}`;
+        return `<div class="chat-item" data-gid="${g.id}"><div class="avatar" style="background:#6c5ce7">👥</div><div class="chat-info"><div class="chat-row"><span class="chat-name">${esc(g.name)}</span><span class="chat-time">${formatContactTime(item.ts)}</span></div><div class="chat-preview-row"><span class="chat-preview">${esc(preview)}</span>${badge}</div></div></div>`;
+      } else if (item.type==='channel') {
+        const ch=item.data;
+        return `<div class="chat-item" data-chid="${ch.id}"><div class="avatar" style="background:#059669">📢</div><div class="chat-info"><div class="chat-name">${esc(ch.title||ch.id.substring(0,8))}</div><div class="chat-preview">${ch.is_owner?'Your channel':'Subscribed'}</div></div></div>`;
+      } else {
+        const c=item.data, unread=unreadCounts[c.user_id]||0, badge=unread>0?`<span class="unread-badge">${unread}</span>`:'';
+        const isMaster=isMasterContact(c.user_id), isLara=isLaraContact(c.user_id);
+        const initial=isMaster?'M':isLara?'🔥':(c.name||'?')[0].toUpperCase();
+        const color=isMaster?'#B8860B':isLara?'#D4AF37':getAvatarColor(c.name);
+        const specialBadge=isMaster?'<span class="badge badge-dev">DEV</span>':isLara?'<span class="badge badge-lara">LARA</span>':'';
+        const preview=lastMessages[c.user_id]||'';
+        const isOnline=onlineSet.has(c.user_id);
+        const dot=isOnline?'<span class="avatar-online"></span>':'';
+        return `<div class="chat-item" data-uid="${c.user_id}"><div class="avatar" style="background:${color}">${initial}${dot}</div><div class="chat-info"><div class="chat-row"><span class="chat-name">${esc(c.name)}${specialBadge}</span><span class="chat-time">${formatContactTime(item.ts)}</span></div><div class="chat-preview-row"><span class="chat-preview">${esc(preview)}</span>${badge}</div></div></div>`;
+      }
     }).join('');
-    const wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-    if (wasNearBottom) container.scrollTop = container.scrollHeight;
   }
 
-  async function sendChannelPost() {
-    if (!currentChannel || !currentChannel.is_owner) return;
-    const input = document.getElementById('msg-input');
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-    try {
-      await fetch('/api/channels/post/' + currentChannel.id, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({text})
-      });
-      loadChannelPosts();
-    } catch(e) {}
+  // === MAIL LIST (Tab 3) ===
+  function renderMailList() {
+    const list = document.getElementById('mail-list');
+    if (!list) return;
+    // TODO: implement mail storage & rendering
+    // For now, show empty state
+    list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">✉️</div><h3>${t('mail_empty_title')||'Нет писем'}</h3><p>${t('mail_empty_text')||'Здесь будет ваша почта'}</p></div>`;
+  }
+
+  // === CHAT VIEW ===
+  function openChat(contact) {
+    currentContact = contact; currentGroup = null; currentChannel = null;
+    lastMsgJSON = ''; replyingTo = null;
+    const rp = document.getElementById('reply-preview'); if(rp) rp.style.display='none';
+    document.getElementById('chat-contact-name').textContent = contact.name;
+    document.getElementById('btn-delete-chat').style.display = 'inline-flex';
+    document.getElementById('btn-rename-contact').style.display = 'inline-flex';
+    document.getElementById('chat-view').classList.add('open');
+    if(msgCache[contact.user_id]) renderMessages(msgCache[contact.user_id]);
+    else document.getElementById('messages').innerHTML = `<div class="empty-state"><p>${t('msg_loading')}</p></div>`;
+    markAsRead(contact.user_id);
+    loadMessages();
+    document.getElementById('msg-input').focus();
   }
 
   function openGroupChat(group) {
-    currentContact = null;
-    currentGroup = group;
-    lastMsgJSON = '';
-    lastGroupMsgJSON = '';
-    replyingTo = null;
-    const rp = document.getElementById('reply-preview');
-    if (rp) rp.style.display = 'none';
+    currentContact = null; currentGroup = group; currentChannel = null;
+    lastGroupMsgJSON = ''; replyingTo = null;
     document.getElementById('chat-contact-name').textContent = group.name;
-    document.getElementById('input-area').style.display = 'flex';
-    document.getElementById('welcome-screen').style.display = 'none';
-    document.getElementById('messages').style.display = 'block';
-    document.getElementById('app').classList.add('chat-open');
-    document.getElementById('chat-encrypted').style.display = 'flex';
-    document.getElementById('typing-indicator').style.display = 'none';
     document.getElementById('btn-delete-chat').style.display = 'inline-flex';
     document.getElementById('btn-rename-contact').style.display = 'none';
-
-    // Instant render from cache
-    if (groupMsgCache[group.id]) {
-      renderGroupMessages(groupMsgCache[group.id]);
-    } else {
-      document.getElementById('messages').innerHTML = `<div class="messages-empty">${t('msg_loading')}</div>`;
-    }
-
-    markAsRead('g:' + group.id);
-    renderContacts();
+    document.getElementById('chat-view').classList.add('open');
+    if(groupMsgCache[group.id]) renderGroupMessages(groupMsgCache[group.id]);
+    else document.getElementById('messages').innerHTML = `<div class="empty-state"><p>${t('msg_loading')}</p></div>`;
+    markAsRead('g:'+group.id);
     loadGroupMessages();
     document.getElementById('msg-input').focus();
   }
 
-  let lastGroupMsgJSON = '';
-  async function loadGroupMessages() {
-    if (!currentGroup) return;
+  function closeChat() {
+    document.getElementById('chat-view').classList.remove('open');
+    currentContact = null; currentGroup = null; currentChannel = null;
+    renderChatsList();
+  }
+
+  // === MESSAGES ===
+  async function loadMessages() {
+    if(!currentContact) return;
     try {
-      const resp = await fetch(`/api/groups/messages/${currentGroup.id}`);
-      const msgs = await resp.json();
+      const r = await fetch(`/api/messages/${currentContact.user_id}`); const msgs = await r.json();
+      const json = JSON.stringify(msgs);
+      msgCache[currentContact.user_id] = msgs;
+      if(msgs&&msgs.length>0) lastActivity[currentContact.user_id]=msgs[msgs.length-1].timestamp;
+      if(json!==lastMsgJSON){lastMsgJSON=json;renderMessages(msgs);if(msgs&&msgs.length>0)markAsRead(currentContact.user_id);}
+    }catch(e){}
+  }
+
+  const lockSVG = '<span class="msg-lock"><svg viewBox="0 0 24 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span>';
+
+  function renderMessages(msgs) {
+    const container = document.getElementById('messages');
+    if(!msgs||msgs.length===0){container.innerHTML=`<div class="empty-state"><p>${t('msg_empty')}</p></div>`;return;}
+    const isMasterChat = currentContact && isSpecialContact(currentContact.user_id);
+    container.innerHTML = msgs.map(m => {
+      const cls = m.outgoing?'out':'in';
+      const masterCls = (isMasterChat&&!m.outgoing)?' master-msg':'';
+      const dt = formatDateTime(m.timestamp);
+      let check = '';
+      if(m.outgoing) check = m.status==='delivered'?'<span class="check">✓✓</span>':'<span class="check">✓</span>';
+      return `<div class="message ${cls}${masterCls}"><div class="msg-datetime">${dt}</div><div class="msg-text">${esc(m.text)}</div><div class="meta">${lockSVG}${check}</div></div>`;
+    }).join('');
+    const near = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+    if(near) container.scrollTop = container.scrollHeight;
+  }
+
+  // === GROUP MESSAGES ===
+  async function loadGroupMessages() {
+    if(!currentGroup) return;
+    try {
+      const r = await fetch(`/api/groups/messages/${currentGroup.id}`); const msgs = await r.json();
       const json = JSON.stringify(msgs);
       groupMsgCache[currentGroup.id] = msgs;
-      if (msgs && msgs.length > 0) {
-        lastActivity['g:' + currentGroup.id] = msgs[msgs.length - 1].timestamp;
-      }
-      if (json !== lastGroupMsgJSON) {
-        lastGroupMsgJSON = json;
-        renderGroupMessages(msgs);
-        if (msgs && msgs.length > 0) {
-          markAsRead('g:' + currentGroup.id);
-        }
-      }
-    } catch(e) {}
+      if(msgs&&msgs.length>0) lastActivity['g:'+currentGroup.id]=msgs[msgs.length-1].timestamp;
+      if(json!==lastGroupMsgJSON){lastGroupMsgJSON=json;renderGroupMessages(msgs);if(msgs&&msgs.length>0)markAsRead('g:'+currentGroup.id);}
+    }catch(e){}
   }
 
   function renderGroupMessages(msgs) {
     const container = document.getElementById('messages');
-    if (!msgs || msgs.length === 0) {
-      container.innerHTML = `<div class="messages-empty">${t('msg_empty_group')}</div>`;
-      return;
-    }
-    container.innerHTML = msgs.map((m, idx) => {
-      const cls = m.outgoing ? 'out' : 'in';
-      const dt = formatDateTime(m.timestamp);
-      const sender = m.outgoing ? '' : `<div class="group-sender" style="color:${getAvatarColor(m.from_name)}">${esc(m.from_name)}</div>`;
-      let replyBlock = '';
-      if (m.reply_to) {
-        const previewText = m.reply_text ? (m.reply_text.length > 60 ? m.reply_text.substring(0, 60) + '...' : m.reply_text) : '';
-        replyBlock = `<div class="message-reply-quote" data-reply-id="${m.reply_to}">
-          <div class="reply-quote-from">${esc(m.reply_from || '')}</div>
-          <div class="reply-quote-text">${esc(previewText)}</div>
-        </div>`;
-      }
-      return `<div class="message ${cls}" data-msg-idx="${idx}">
-        ${sender}
-        <div class="msg-datetime">${dt}</div>
-        ${replyBlock}
-        <div class="msg-text">${esc(m.text)}</div>
-        <div class="meta">${lockSVG}</div>
-      </div>`;
+    if(!msgs||msgs.length===0){container.innerHTML=`<div class="empty-state"><p>${t('msg_empty_group')}</p></div>`;return;}
+    container.innerHTML = msgs.map((m,idx) => {
+      const cls=m.outgoing?'out':'in', dt=formatDateTime(m.timestamp);
+      const sender = m.outgoing?'':`<div class="group-sender" style="color:${getAvatarColor(m.from_name)}">${esc(m.from_name)}</div>`;
+      let replyBlock='';
+      if(m.reply_to){const pt=m.reply_text?(m.reply_text.length>60?m.reply_text.substring(0,60)+'...':m.reply_text):'';replyBlock=`<div class="message-reply-quote" data-reply-id="${m.reply_to}"><div class="reply-quote-from">${esc(m.reply_from||'')}</div><div class="reply-quote-text">${esc(pt)}</div></div>`;}
+      return `<div class="message ${cls}" data-msg-idx="${idx}">${sender}<div class="msg-datetime">${dt}</div>${replyBlock}<div class="msg-text">${esc(m.text)}</div><div class="meta">${lockSVG}</div></div>`;
     }).join('');
-
-    // Click on incoming messages to reply
-    container.querySelectorAll('.message.in').forEach(el => {
-      el.addEventListener('click', (e) => {
-        // Don't trigger reply when clicking on the quote itself (scroll to original instead)
-        if (e.target.closest('.message-reply-quote')) {
-          const replyId = e.target.closest('.message-reply-quote').dataset.replyId;
-          scrollToMessage(replyId, msgs);
-          return;
-        }
-        const idx = parseInt(el.dataset.msgIdx);
-        if (msgs[idx]) setReplyingTo(msgs[idx]);
-      });
+    // Reply handlers
+    container.querySelectorAll('.message.in').forEach(el=>{
+      el.addEventListener('click',e=>{if(e.target.closest('.message-reply-quote'))return;const idx=parseInt(el.dataset.msgIdx);if(msgs[idx])setReplyingTo(msgs[idx]);});
     });
-
-    // Click on reply quotes in outgoing messages to scroll to original
-    container.querySelectorAll('.message.out .message-reply-quote').forEach(el => {
-      el.addEventListener('click', () => {
-        scrollToMessage(el.dataset.replyId, msgs);
-      });
-    });
-
-    const wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-    if (wasNearBottom) container.scrollTop = container.scrollHeight;
-  }
-
-  function scrollToMessage(msgId, msgs) {
-    const idx = msgs.findIndex(m => m.id === msgId);
-    if (idx === -1) return;
-    const container = document.getElementById('messages');
-    const msgEl = container.querySelector(`[data-msg-idx="${idx}"]`);
-    if (msgEl) {
-      msgEl.scrollIntoView({behavior: 'smooth', block: 'center'});
-      msgEl.classList.add('message-highlight');
-      setTimeout(() => msgEl.classList.remove('message-highlight'), 1500);
-    }
+    const near = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+    if(near) container.scrollTop = container.scrollHeight;
   }
 
   function setReplyingTo(msg) {
     replyingTo = msg;
     let preview = document.getElementById('reply-preview');
-    if (!preview) {
-      preview = document.createElement('div');
-      preview.id = 'reply-preview';
-      preview.className = 'reply-preview';
-      const inputArea = document.getElementById('input-area');
-      inputArea.parentNode.insertBefore(preview, inputArea);
-    }
-    const previewText = msg.text.length > 80 ? msg.text.substring(0, 80) + '...' : msg.text;
-    const senderName = msg.outgoing ? 'Вы' : (msg.from_name || msg.from);
-    preview.innerHTML = `<div class="reply-preview-content">
-      <div class="reply-preview-sender">${esc(senderName)}</div>
-      <div class="reply-preview-text">${esc(previewText)}</div>
-    </div>
-    <button class="reply-preview-cancel" onclick="window._cancelReply()">&times;</button>`;
-    preview.style.display = 'flex';
+    if(!preview){preview=document.createElement('div');preview.id='reply-preview';preview.className='reply-preview';document.getElementById('input-area').parentNode.insertBefore(preview,document.getElementById('input-area'));}
+    const text=msg.text.length>80?msg.text.substring(0,80)+'...':msg.text;
+    const sender=msg.outgoing?'Вы':(msg.from_name||msg.from);
+    preview.innerHTML=`<div class="reply-preview-content"><div class="reply-preview-sender">${esc(sender)}</div><div class="reply-preview-text">${esc(text)}</div></div><button class="reply-preview-cancel" onclick="window._cancelReply()">&times;</button>`;
+    preview.style.display='flex';
     document.getElementById('msg-input').focus();
   }
+  window._cancelReply = function(){replyingTo=null;const p=document.getElementById('reply-preview');if(p)p.style.display='none';};
 
-  window._cancelReply = function() {
-    replyingTo = null;
-    const preview = document.getElementById('reply-preview');
-    if (preview) preview.style.display = 'none';
-  };
+  // === SEND ===
+  async function sendMessage() {
+    if(!currentContact||_sending) return;
+    const input=document.getElementById('msg-input'), text=input.value.trim();
+    if(!text) return;
+    _sending=true; input.value=''; input.style.height='auto';
+    try{await fetch(`/api/messages/${currentContact.user_id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});loadMessages();}catch(e){}finally{_sending=false;}
+  }
 
   async function sendGroupMessage() {
-    if (!currentGroup || _sending) return;
-    const input = document.getElementById('msg-input');
-    const text = input.value.trim();
-    if (!text) return;
-    _sending = true;
-    input.value = '';
-    input.style.height = 'auto';
+    if(!currentGroup||_sending) return;
+    const input=document.getElementById('msg-input'), text=input.value.trim();
+    if(!text) return;
+    _sending=true; input.value=''; input.style.height='auto';
+    const body={text};
+    if(replyingTo){body.replyTo=replyingTo.id;body.replyText=replyingTo.text.length>100?replyingTo.text.substring(0,100):replyingTo.text;body.replyFrom=replyingTo.outgoing?'Вы':(replyingTo.from_name||replyingTo.from);replyingTo=null;const p=document.getElementById('reply-preview');if(p)p.style.display='none';}
+    try{await fetch(`/api/groups/messages/${currentGroup.id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});loadGroupMessages();}catch(e){}finally{_sending=false;}
+  }
 
-    const body = {text};
-    if (replyingTo) {
-      body.replyTo = replyingTo.id;
-      body.replyText = replyingTo.text.length > 100 ? replyingTo.text.substring(0, 100) : replyingTo.text;
-      body.replyFrom = replyingTo.outgoing ? 'Вы' : (replyingTo.from_name || replyingTo.from);
-      replyingTo = null;
-      const preview = document.getElementById('reply-preview');
-      if (preview) preview.style.display = 'none';
-    }
-
+  // === UPDATE CHECK (FOTA) ===
+  async function checkForUpdate() {
     try {
-      await fetch(`/api/groups/messages/${currentGroup.id}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body)
-      });
-      loadGroupMessages();
-    } catch(e) { console.error('Group send failed:', e); } finally {
-      _sending = false;
-    }
+      const r=await fetch('/api/update/check'); const d=await r.json();
+      if(!d.available) return;
+      const dismissed=localStorage.getItem('iskra-update-dismissed');
+      const key=d.remoteBuild?d.version+'-b'+d.remoteBuild:d.version;
+      if(dismissed===key) return;
+      // Find platform asset
+      const ua=navigator.userAgent.toLowerCase();
+      const isAndroid=ua.indexOf('android')!==-1;
+      const isWindows=ua.indexOf('win')!==-1&&ua.indexOf('android')===-1;
+      let asset=null;
+      if(d.assets&&d.assets.length>0){
+        if(isAndroid) asset=d.assets.find(a=>a.name.toLowerCase().endsWith('.apk'));
+        else if(isWindows) asset=d.assets.find(a=>a.name.toLowerCase().endsWith('.exe'));
+      }
+      if(!asset) return;
+      // Show update banner
+      const banner=document.getElementById('update-banner');
+      banner.innerHTML=`<div style="padding:10px 16px;background:var(--accent-light);display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px">${t('update_available')}: ${esc(d.version)}</span><button onclick="localStorage.setItem('iskra-update-dismissed','${key}');this.parentElement.parentElement.style.display='none'" style="background:none;border:none;font-size:18px;cursor:pointer">&times;</button></div>`;
+      banner.style.display='block';
+    }catch(e){}
   }
 
-  // === CHAT ===
-  function openChat(contact) {
-    currentContact = contact;
-    currentGroup = null;
-    lastMsgJSON = '';
-    lastGroupMsgJSON = '';
-    replyingTo = null;
-    const rp = document.getElementById('reply-preview');
-    if (rp) rp.style.display = 'none';
-    document.getElementById('chat-contact-name').textContent = contact.name;
-    document.getElementById('input-area').style.display = 'flex';
-    document.getElementById('welcome-screen').style.display = 'none';
-    document.getElementById('messages').style.display = 'block';
-    document.getElementById('app').classList.add('chat-open');
-    document.getElementById('chat-encrypted').style.display = 'flex';
-    document.getElementById('typing-indicator').style.display = 'none';
-
-    // Show chat action buttons
-    document.getElementById('btn-delete-chat').style.display = 'inline-flex';
-    document.getElementById('btn-rename-contact').style.display = 'inline-flex';
-
-    // Instant render from cache
-    if (msgCache[contact.user_id]) {
-      renderMessages(msgCache[contact.user_id]);
-    } else {
-      document.getElementById('messages').innerHTML = `<div class="messages-empty">${t('msg_loading')}</div>`;
-    }
-
-    // Mark as read
-    markAsRead(contact.user_id);
-
-    renderContacts();
-    loadMessages();
-    document.getElementById('msg-input').focus();
+  // === UNREAD ===
+  function getLastRead(key){return parseInt(localStorage.getItem('iskra-lastread-'+key)||'0',10);}
+  function markAsRead(key){
+    let maxTs=0;
+    if(key.startsWith('g:')){const gid=key.substring(2);const msgs=groupMsgCache[gid];if(msgs&&msgs.length>0)for(const m of msgs)if(m.timestamp>maxTs)maxTs=m.timestamp;}
+    else{const msgs=msgCache[key];if(msgs&&msgs.length>0)for(const m of msgs)if(m.timestamp>maxTs)maxTs=m.timestamp;}
+    if(maxTs===0)maxTs=Math.floor(Date.now()/1000);
+    const prev=getLastRead(key);if(maxTs>prev)localStorage.setItem('iskra-lastread-'+key,maxTs.toString());
+    unreadCounts[key]=0;
   }
 
-  let lastMsgJSON = '';
-  async function loadMessages() {
-    if (!currentContact) return;
+  async function updateUnreadCounts() {
+    const lastRead={};
+    for(const c of contacts) lastRead[c.user_id]=getLastRead(c.user_id);
+    for(const g of groups) lastRead['g:'+g.id]=getLastRead('g:'+g.id);
     try {
-      const resp = await fetch(`/api/messages/${currentContact.user_id}`);
-      const msgs = await resp.json();
-      const json = JSON.stringify(msgs);
-      msgCache[currentContact.user_id] = msgs;
-      if (msgs && msgs.length > 0) {
-        lastActivity[currentContact.user_id] = msgs[msgs.length - 1].timestamp;
-      }
-      if (json !== lastMsgJSON) {
-        lastMsgJSON = json;
-        renderMessages(msgs);
-        if (msgs && msgs.length > 0) {
-          markAsRead(currentContact.user_id);
-        }
-      }
-    } catch(e) {}
+      const r=await fetch('/api/unread',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lastRead})});
+      const d=await r.json();
+      unreadCounts=d.counts||{};
+      lastMessages=d.lastMsg||{};
+      if(d.lastTs) Object.assign(lastActivity,d.lastTs);
+      const total=Object.values(unreadCounts).reduce((a,b)=>a+b,0);
+      if(total>prevTotalUnread&&prevTotalUnread>=0) playPing();
+      prevTotalUnread=total;
+      // Update badges
+      const chatBadge=document.getElementById('badge-chats');
+      if(total>0){chatBadge.textContent=total;chatBadge.style.display='flex';}else{chatBadge.style.display='none';}
+      if(currentTab==='chats') renderChatsList();
+    }catch(e){}
   }
 
-  function renderMessages(msgs) {
-    const container = document.getElementById('messages');
-    if (!msgs || msgs.length === 0) {
-      container.innerHTML = `<div class="messages-empty">${t('msg_empty')}</div>`;
-      return;
-    }
-    const isMasterChat = currentContact && isSpecialContact(currentContact.user_id);
-    container.innerHTML = msgs.map(m => {
-      const cls = m.outgoing ? 'out' : 'in';
-      const masterCls = (isMasterChat && !m.outgoing) ? ' master-msg' : '';
-      const dt = formatDateTime(m.timestamp);
-      let check = '';
-      if (m.outgoing) {
-        check = m.status === 'delivered'
-          ? '<span class="check">✓✓</span>'
-          : '<span class="check">✓</span>';
-      }
-      return `<div class="message ${cls}${masterCls}">
-        <div class="msg-datetime">${dt}</div>
-        <div class="msg-text">${esc(m.text)}</div>
-        <div class="meta">${lockSVG}${check}</div>
-      </div>`;
-    }).join('');
-    // Auto-scroll only if user was near bottom (not reading history)
-    const wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-    if (wasNearBottom) container.scrollTop = container.scrollHeight;
-  }
+  function playPing(){try{const c=new(window.AudioContext||window.webkitAudioContext)(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=880;o.type='sine';g.gain.setValueAtTime(0.3,c.currentTime);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.3);o.start(c.currentTime);o.stop(c.currentTime+0.3);}catch(e){}}
 
-  function formatTime(ts) {
-    const d = new Date(ts * 1000);
-    const now = new Date();
-    const time = d.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
-    if (d.toDateString() === now.toDateString()) return time;
-    const date = d.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
-    return `${date} ${time}`;
-  }
-
-  // Full date+time for message bubble header
-  function formatDateTime(ts) {
-    const d = new Date(ts * 1000);
-    const now = new Date();
-    const time = d.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (d.toDateString() === now.toDateString()) {
-      return `${t('time_today')}, ${time}`;
-    } else if (d.toDateString() === yesterday.toDateString()) {
-      return `${t('time_yesterday')}, ${time}`;
-    }
-    const date = d.toLocaleDateString('ru-RU', {day:'numeric', month:'long'});
-    return `${date}, ${time}`;
-  }
-
-  // Short time for contact list sidebar
-  function formatContactTime(ts) {
-    if (!ts) return '';
-    const d = new Date(ts * 1000);
-    const now = new Date();
-    const time = d.toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (d.toDateString() === now.toDateString()) return time;
-    if (d.toDateString() === yesterday.toDateString()) return t('time_yesterday');
-    if (d.getFullYear() === now.getFullYear()) {
-      return d.toLocaleDateString('ru-RU', {day:'numeric', month:'short'});
-    }
-    return d.toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit', year:'2-digit'});
-  }
-
-  // Lock icon SVG (inline, tiny)
-  const lockSVG = '<span class="msg-lock"><svg viewBox="0 0 24 24" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span>';
-
-  let _sending = false;
-  async function sendMessage() {
-    if (!currentContact || _sending) return;
-    const input = document.getElementById('msg-input');
-    const text = input.value.trim();
-    if (!text) return;
-
-    _sending = true;
-    input.value = '';
-    input.style.height = 'auto';
-
-    try {
-      await fetch(`/api/messages/${currentContact.user_id}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({text})
-      });
-      loadMessages();
-    } catch(e) {
-      console.error('Send failed:', e);
-    } finally {
-      _sending = false;
-    }
-  }
-
-  // === INVITE LINKS ===
-  function parseInviteLink(link) {
-    link = link.trim();
-    // iskra://edPubKey/x25519PubKey or iskra://edPubKey/x25519PubKey/name
-    const match = link.match(/^iskra:\/\/([A-Za-z0-9]+)\/([A-Za-z0-9]+)(?:\/(.+))?$/);
-    if (!match) return null;
-    return {
-      pubkey: match[1],
-      x25519: match[2],
-      name: match[3] ? decodeURIComponent(match[3]) : ''
-    };
+  // === POLLING ===
+  function startPolling() {
+    setInterval(()=>{if(currentContact)loadMessages();if(currentGroup)loadGroupMessages();},1000);
+    setInterval(()=>{updateUnreadCounts();},1500);
+    setInterval(()=>{loadContacts().then(()=>loadGroups()).then(()=>loadChannels());loadStatus();loadOnline();},10000);
   }
 
   // === EVENTS ===
   function setupEvents() {
     // Send
-    document.getElementById('btn-send').addEventListener('click', () => {
-      if (currentChannel) sendChannelPost();
-      else if (currentGroup) sendGroupMessage(); else sendMessage();
-    });
-    document.getElementById('msg-input').addEventListener('keydown', e => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        if (currentChannel) sendChannelPost();
-        else if (currentGroup) sendGroupMessage(); else sendMessage();
-      }
-    });
-    document.getElementById('msg-input').addEventListener('input', function() {
-      this.style.height = 'auto';
-      this.style.height = Math.min(this.scrollHeight, 120) + 'px';
-    });
+    document.getElementById('btn-send').addEventListener('click',()=>{if(currentGroup)sendGroupMessage();else sendMessage();});
+    document.getElementById('msg-input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(currentGroup)sendGroupMessage();else sendMessage();}});
+    document.getElementById('msg-input').addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';});
+
+    // Back
+    document.getElementById('btn-back').addEventListener('click',closeChat);
 
     // File attach
-    document.getElementById('btn-attach').addEventListener('click', () => {
-      document.getElementById('file-input').click();
-    });
-    document.getElementById('file-input').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      if (file.size > 10 * 1024 * 1024) {
-        alert('Max 10 MB');
-        return;
-      }
-      const uid = currentContact ? currentContact.user_id : null;
-      if (!uid) { alert('Select a contact first'); return; }
-      const form = new FormData();
-      form.append('file', file);
-      try {
-        const btn = document.getElementById('btn-attach');
-        btn.style.opacity = '1';
-        btn.textContent = '...';
-        const resp = await fetch('/api/file/send/' + uid, {method: 'POST', body: form});
-        const data = await resp.json();
-        btn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>';
-        btn.style.opacity = '0.5';
-        if (data.ok) loadMessages();
-      } catch(err) { alert('Send failed'); }
-      e.target.value = '';
+    document.getElementById('btn-attach').addEventListener('click',()=>document.getElementById('file-input').click());
+    document.getElementById('file-input').addEventListener('change',async e=>{
+      const file=e.target.files[0];if(!file)return;
+      if(file.size>10*1024*1024){alert('Max 10 MB');return;}
+      const uid=currentContact?currentContact.user_id:null;if(!uid)return;
+      const form=new FormData();form.append('file',file);
+      try{await fetch('/api/file/send/'+uid,{method:'POST',body:form});loadMessages();}catch(e){}
+      e.target.value='';
     });
 
-    // Back (mobile)
-    document.getElementById('btn-back').addEventListener('click', () => {
-      document.getElementById('app').classList.remove('chat-open');
-      document.getElementById('welcome-screen').style.display = 'flex';
-      document.getElementById('messages').style.display = 'none';
-      document.getElementById('input-area').style.display = 'none';
-      document.getElementById('btn-delete-chat').style.display = 'none';
-      document.getElementById('btn-rename-contact').style.display = 'none';
-      document.getElementById('chat-encrypted').style.display = 'none';
-      document.getElementById('typing-indicator').style.display = 'none';
-      currentContact = null;
-      currentGroup = null;
+    // Contact list clicks (delegation)
+    document.getElementById('contacts-list').addEventListener('click',e=>{
+      const el=e.target.closest('.contact-item');
+      if(el){showContextMenu(e,el.dataset.uid);e.preventDefault();}
     });
 
-    // Change PIN
-    document.getElementById('btn-change-pin').addEventListener('click', () => {
-      pinMode = 'setup';
-      pinValue = '';
-      pinSetupFirst = '';
-      updatePINDots();
-      document.getElementById('pin-subtitle').textContent = t('pin_setup');
-      document.getElementById('pin-ok').textContent = t('pin_btn_save');
-      document.getElementById('pin-error').textContent = '';
-      document.getElementById('pin-attempts').textContent = '';
-      document.getElementById('pin-screen').style.display = 'flex';
+    // Chat list clicks
+    document.getElementById('chats-list').addEventListener('click',e=>{
+      const dm=e.target.closest('[data-uid]');
+      if(dm){const c=contacts.find(x=>x.user_id===dm.dataset.uid)||{user_id:dm.dataset.uid,name:dm.dataset.uid.substring(0,8)};openChat(c);return;}
+      const gp=e.target.closest('[data-gid]');
+      if(gp){const g=groups.find(x=>x.id===gp.dataset.gid);if(g)openGroupChat(g);return;}
     });
 
-    // Create channel
-    document.getElementById('btn-create-channel').addEventListener('click', async () => {
-      const title = prompt(t('channel_name_prompt') || 'Channel name:');
-      if (!title) return;
-      try {
-        await fetch('/api/channels/create', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({title})
-        });
-        loadChannels();
-      } catch(e) {}
+    // Online list clicks
+    document.getElementById('online-list').addEventListener('click',e=>{
+      const el=e.target.closest('.contact-item');
+      if(el) showContextMenu(e,el.dataset.uid);
     });
 
-    // Delete chat (works for both DM and group)
-    document.getElementById('btn-delete-chat').addEventListener('click', async () => {
-      if (currentGroup) {
-        if (!confirm(`${t('delete_group_confirm')} «${currentGroup.name}»?`)) return;
-        try {
-          await fetch(`/api/groups/delete/${currentGroup.id}`, {method: 'POST'});
-          currentGroup = null;
-          document.getElementById('app').classList.remove('chat-open');
-          document.getElementById('welcome-screen').style.display = 'flex';
-          loadGroups();
-        } catch(e) { console.error('Delete group failed:', e); }
-      } else if (currentContact) {
-        if (!confirm(`${t('delete_chat_confirm')} ${currentContact.name}?`)) return;
-        try {
-          await fetch(`/api/chat/delete/${currentContact.user_id}`, {method: 'POST'});
-          loadMessages();
-        } catch(e) { console.error('Delete chat failed:', e); }
-      }
+    // Context menu actions
+    document.getElementById('context-menu').addEventListener('click',e=>{
+      const item=e.target.closest('.ctx-item');
+      if(!item) return;
+      const action=item.dataset.action;
+      const uid=document.getElementById('context-menu').dataset.uid;
+      hideContextMenu();
+      const contact=contacts.find(c=>c.user_id===uid)||{user_id:uid,name:uid.substring(0,8)};
+      if(action==='message'){switchTab('chats');openChat(contact);}
+      else if(action==='copy'){const id=window._identity;if(id)navigator.clipboard.writeText(makeInviteLink(id));}
+      else if(action==='rename'){const n=prompt(t('rename_prompt'),contact.name);if(n&&n!==contact.name)fetch(`/api/contacts/rename/${uid}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})}).then(()=>loadContacts());}
+      else if(action==='delete'){if(confirm(`${t('delete_chat_confirm')} ${contact.name}?`))fetch(`/api/chat/delete/${uid}`,{method:'POST'}).then(()=>loadContacts());}
+    });
+
+    // Close context menu on click outside
+    document.addEventListener('click',e=>{if(!e.target.closest('.context-menu')&&!e.target.closest('.contact-item'))hideContextMenu();});
+
+    // Delete chat
+    document.getElementById('btn-delete-chat').addEventListener('click',async()=>{
+      if(currentGroup){if(!confirm(`${t('delete_group_confirm')} «${currentGroup.name}»?`))return;await fetch(`/api/groups/delete/${currentGroup.id}`,{method:'POST'});closeChat();loadGroups();}
+      else if(currentContact){if(!confirm(`${t('delete_chat_confirm')} ${currentContact.name}?`))return;await fetch(`/api/chat/delete/${currentContact.user_id}`,{method:'POST'});closeChat();}
     });
 
     // Rename contact
-    document.getElementById('btn-rename-contact').addEventListener('click', () => {
-      if (!currentContact) return;
-      const newName = prompt(t('rename_prompt'), currentContact.name);
-      if (!newName || newName === currentContact.name) return;
-      fetch(`/api/contacts/rename/${currentContact.user_id}`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: newName})
-      }).then(() => {
-        currentContact.name = newName;
-        document.getElementById('chat-contact-name').textContent = newName;
-        loadContacts();
-      }).catch(e => console.error('Rename failed:', e));
-    });
-
-    // Help
-    document.getElementById('btn-help').addEventListener('click', () => {
-      document.getElementById('modal-help').style.display = 'flex';
-    });
-
-    // My key
-    document.getElementById('btn-show-id').addEventListener('click', () => {
-      const id = window._identity;
-      if (!id) return;
-      const link = makeInviteLink(id);
-      document.getElementById('modal-invite-link').textContent = link;
-      document.getElementById('modal-user-id').textContent = id.userID;
-      document.getElementById('modal-pubkey').textContent = id.pubkey;
-      document.getElementById('modal-x25519').textContent = id.x25519_pub;
-
-      const grid = document.getElementById('modal-mnemonic');
-      grid.innerHTML = (id.mnemonic || []).map((w, i) =>
-        `<div class="mnemonic-word"><span class="num">${i+1}.</span> ${esc(w)}</div>`
-      ).join('');
-
-      document.getElementById('modal-id').style.display = 'flex';
-    });
-
-    document.getElementById('btn-copy-invite').addEventListener('click', () => {
-      const link = document.getElementById('modal-invite-link').textContent;
-      navigator.clipboard.writeText(link).then(() => {
-        const btn = document.getElementById('btn-copy-invite');
-        btn.textContent = t('btn_copied');
-        setTimeout(() => { btn.textContent = 'Скопировать визитку'; }, 2000);
-      });
-    });
-
-    // Create group
-    document.getElementById('btn-create-group').addEventListener('click', () => {
-      const membersList = document.getElementById('group-members-list');
-      if (!contacts || contacts.length === 0) {
-        membersList.innerHTML = `<p style="color:var(--text-light)">${t('modal_group_no_contacts')}</p>`;
-      } else {
-        membersList.innerHTML = contacts.map(c =>
-          `<label class="group-member-option">
-            <input type="checkbox" value="${c.user_id}" />
-            <span>${esc(c.name)}</span>
-          </label>`
-        ).join('');
-      }
-      document.getElementById('group-name').value = '';
-      document.getElementById('modal-group').style.display = 'flex';
-      document.getElementById('group-name').focus();
-    });
-
-    document.getElementById('btn-group-create').addEventListener('click', async () => {
-      const name = document.getElementById('group-name').value.trim();
-      if (!name) {
-        document.getElementById('group-name').style.borderColor = '#d94040';
-        setTimeout(() => { document.getElementById('group-name').style.borderColor = ''; }, 2000);
-        return;
-      }
-      const checked = document.querySelectorAll('#group-members-list input:checked');
-      const members = Array.from(checked).map(el => el.value);
-      if (members.length === 0) return;
-
-      try {
-        const resp = await fetch('/api/groups', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({name, members})
-        });
-        if (resp.ok) {
-          closeModal('modal-group');
-          await loadGroups();
-          const group = groups.find(g => g.name === name);
-          if (group) openGroupChat(group);
-        }
-      } catch(e) { console.error('Create group failed:', e); }
+    document.getElementById('btn-rename-contact').addEventListener('click',()=>{
+      if(!currentContact) return;
+      const n=prompt(t('rename_prompt'),currentContact.name);
+      if(!n||n===currentContact.name) return;
+      fetch(`/api/contacts/rename/${currentContact.user_id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})}).then(()=>{currentContact.name=n;document.getElementById('chat-contact-name').textContent=n;loadContacts();});
     });
 
     // Add contact
-    document.getElementById('btn-add-contact').addEventListener('click', () => {
-      document.getElementById('modal-add').style.display = 'flex';
-      document.getElementById('add-invite').focus();
-    });
+    document.getElementById('btn-add-contact').addEventListener('click',()=>{document.getElementById('modal-add').style.display='flex';document.getElementById('add-invite').focus();});
 
     // Auto-parse invite link
-    document.getElementById('add-invite').addEventListener('input', function() {
-      const parsed = parseInviteLink(this.value);
-      if (parsed) {
-        document.getElementById('add-pubkey').value = parsed.pubkey;
-        document.getElementById('add-x25519').value = parsed.x25519;
-        if (parsed.name) document.getElementById('add-name').value = parsed.name;
-        // Focus name if empty
-        if (!document.getElementById('add-name').value) {
-          document.getElementById('add-name').focus();
-        }
-      }
+    document.getElementById('add-invite').addEventListener('input',function(){
+      const parsed=parseInviteLink(this.value);
+      if(parsed){document.getElementById('add-pubkey').value=parsed.pubkey;document.getElementById('add-x25519').value=parsed.x25519;if(parsed.name)document.getElementById('add-name').value=parsed.name;if(!document.getElementById('add-name').value)document.getElementById('add-name').focus();}
     });
 
-    document.getElementById('btn-add-save').addEventListener('click', async () => {
-      // Try invite link first
-      const inviteVal = document.getElementById('add-invite').value.trim();
-      if (inviteVal) {
-        const parsed = parseInviteLink(inviteVal);
-        if (parsed) {
-          document.getElementById('add-pubkey').value = parsed.pubkey;
-          document.getElementById('add-x25519').value = parsed.x25519;
-          if (parsed.name && !document.getElementById('add-name').value) {
-            document.getElementById('add-name').value = parsed.name;
-          }
-        }
-      }
-
-      const name = document.getElementById('add-name').value.trim();
-      const pubkey = document.getElementById('add-pubkey').value.trim();
-      const x25519 = document.getElementById('add-x25519').value.trim();
-
-      if (!name) {
-        document.getElementById('add-name').focus();
-        document.getElementById('add-name').style.borderColor = '#d94040';
-        setTimeout(() => { document.getElementById('add-name').style.borderColor = ''; }, 2000);
-        return;
-      }
-      if (!pubkey) {
-        document.getElementById('add-invite').focus();
-        document.getElementById('add-invite').style.borderColor = '#d94040';
-        setTimeout(() => { document.getElementById('add-invite').style.borderColor = ''; }, 2000);
-        return;
-      }
-
-      try {
-        const resp = await fetch('/api/contacts', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({name, pubkeyBase58: pubkey, x25519Base58: x25519})
-        });
-        if (resp.ok) {
-          closeModal('modal-add');
-          clearAddForm();
-          await loadContacts();
-        }
-      } catch(e) {}
+    // Save contact
+    document.getElementById('btn-add-save').addEventListener('click',async()=>{
+      const inv=document.getElementById('add-invite').value.trim();
+      if(inv){const p=parseInviteLink(inv);if(p){document.getElementById('add-pubkey').value=p.pubkey;document.getElementById('add-x25519').value=p.x25519;if(p.name&&!document.getElementById('add-name').value)document.getElementById('add-name').value=p.name;}}
+      const name=document.getElementById('add-name').value.trim();
+      const pubkey=document.getElementById('add-pubkey').value.trim();
+      const x25519=document.getElementById('add-x25519').value.trim();
+      if(!name||!pubkey) return;
+      try{const r=await fetch('/api/contacts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,pubkeyBase58:pubkey,x25519Base58:x25519})});if(r.ok||r.status===201){closeModal('modal-add');clearAddForm();await loadContacts();}}catch(e){}
     });
 
-    // Restore from mnemonic
-    document.getElementById('btn-restore-go').addEventListener('click', async () => {
-      const words = document.getElementById('restore-words').value.trim();
-      const errEl = document.getElementById('restore-error');
-      errEl.style.display = 'none';
-
-      if (!words) {
-        errEl.textContent = 'Введите 24 слова';
-        errEl.style.display = 'block';
-        return;
-      }
-
-      try {
-        const resp = await fetch('/api/restore', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({words})
-        });
-        const data = await resp.json();
-        if (data.error) {
-          errEl.textContent = data.error;
-          errEl.style.display = 'block';
-        } else {
-          localStorage.setItem('iskra-started', '1');
-          document.getElementById('restore-words').value = ''; // clear sensitive data
-          alert('Ключ восстановлен! ID: ' + data.userID + '\n\nПерезапустите приложение.');
-          closeModal('modal-restore');
-        }
-      } catch(e) {
-        errEl.textContent = 'Ошибка связи с сервером';
-        errEl.style.display = 'block';
-      }
+    // Create group
+    document.getElementById('btn-create-group').addEventListener('click',()=>{
+      const ml=document.getElementById('group-members-list');
+      if(!contacts||contacts.length===0){ml.innerHTML=`<p style="color:var(--text3)">${t('modal_group_no_contacts')}</p>`;}
+      else{ml.innerHTML=contacts.map(c=>`<label class="group-member-option"><input type="checkbox" value="${c.user_id}"/><span>${esc(c.name)}</span></label>`).join('');}
+      document.getElementById('group-name').value='';
+      document.getElementById('modal-group').style.display='flex';
     });
 
-    // Import
-    document.getElementById('btn-import-save').addEventListener('click', async () => {
-      const json = document.getElementById('import-json').value.trim();
-      if (!json) return;
-      try {
-        await fetch('/api/import', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: json
-        });
-        closeModal('modal-import');
-        document.getElementById('import-json').value = '';
-        loadContacts();
-      } catch(e) {}
+    document.getElementById('btn-group-create').addEventListener('click',async()=>{
+      const name=document.getElementById('group-name').value.trim();if(!name)return;
+      const members=Array.from(document.querySelectorAll('#group-members-list input:checked')).map(el=>el.value);if(members.length===0)return;
+      try{const r=await fetch('/api/groups',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,members})});if(r.ok){closeModal('modal-group');await loadGroups();}}catch(e){}
+    });
+
+    // Create channel
+    document.getElementById('btn-create-channel').addEventListener('click',async()=>{
+      const title=prompt(t('channel_name_prompt')||'Channel name:');if(!title)return;
+      try{await fetch('/api/channels/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title})});loadChannels();}catch(e){}
+    });
+
+    // Restore
+    document.getElementById('btn-restore-go').addEventListener('click',async()=>{
+      const words=document.getElementById('restore-words').value.trim();const err=document.getElementById('restore-error');err.style.display='none';
+      if(!words){err.textContent=t('restore_enter_words');err.style.display='block';return;}
+      try{const r=await fetch('/api/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({words})});const d=await r.json();if(d.error){err.textContent=d.error;err.style.display='block';}else{localStorage.setItem('iskra-started','1');document.getElementById('restore-words').value='';alert(t('restore_success')+' ID: '+d.userID);closeModal('modal-restore');}}catch(e){err.textContent=t('restore_error');err.style.display='block';}
+    });
+
+    // Settings
+    document.getElementById('btn-settings').addEventListener('click',()=>{document.getElementById('settings-view').classList.add('open');});
+    document.getElementById('btn-settings-back').addEventListener('click',()=>{document.getElementById('settings-view').classList.remove('open');});
+
+    // Theme toggle
+    document.getElementById('btn-theme').addEventListener('click',()=>{
+      const cur=localStorage.getItem('iskra-theme')||'light';
+      const next=cur==='light'?'dark':'light';
+      localStorage.setItem('iskra-theme',next);
+      applyTheme();
+      const sel=document.getElementById('settings-theme');if(sel)sel.value=next;
+    });
+    document.getElementById('settings-theme').addEventListener('change',function(){
+      localStorage.setItem('iskra-theme',this.value);applyTheme();
+    });
+
+    // PIN change
+    document.getElementById('btn-change-pin').addEventListener('click',()=>{
+      pinMode='setup';pinValue='';pinSetupFirst='';updatePINDots();
+      document.getElementById('pin-subtitle').textContent=t('pin_setup');
+      document.getElementById('pin-ok').textContent=t('pin_btn_save');
+      document.getElementById('pin-error').textContent='';document.getElementById('pin-attempts').textContent='';
+      document.getElementById('pin-screen').style.display='flex';
+    });
+
+    // Help
+    document.getElementById('btn-help').addEventListener('click',()=>{document.getElementById('modal-help').style.display='flex';});
+
+    // QR
+    document.getElementById('btn-show-qr').addEventListener('click',()=>{
+      const id=window._identity;if(!id)return;
+      document.getElementById('qr-link').textContent=makeInviteLink(id);
+      document.getElementById('qr-short-addr').textContent='ID: '+id.userID;
+      document.getElementById('modal-qr').style.display='flex';
+      document.getElementById('settings-view').classList.remove('open');
+    });
+    document.getElementById('btn-copy-qr').addEventListener('click',()=>{
+      const link=document.getElementById('qr-link').textContent;
+      navigator.clipboard.writeText(link).then(()=>{document.getElementById('btn-copy-qr').textContent=t('btn_copied');setTimeout(()=>document.getElementById('btn-copy-qr').textContent=t('qr_copy'),2000);});
     });
 
     // Close modals
-    document.querySelectorAll('.modal').forEach(modal => {
-      modal.addEventListener('click', e => {
-        if (e.target === modal) modal.style.display = 'none';
-      });
-    });
-
-    // Keyboard: Escape closes modal
-    document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') {
-        document.querySelectorAll('.modal').forEach(m => m.style.display = 'none');
-      }
-    });
+    document.querySelectorAll('.modal').forEach(m=>{m.addEventListener('click',e=>{if(e.target===m)m.style.display='none';});});
+    document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal').forEach(m=>m.style.display='none');});
 
     // Scroll-to-bottom FAB
-    const messagesEl = document.getElementById('messages');
-    const scrollBtn = document.getElementById('scroll-bottom');
-    if (messagesEl && scrollBtn) {
-      messagesEl.addEventListener('scroll', () => {
-        const distFromBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
-        if (distFromBottom > 200) {
-          scrollBtn.style.display = 'flex';
-        } else {
-          scrollBtn.style.display = 'none';
-        }
-      });
-      scrollBtn.addEventListener('click', () => {
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-        scrollBtn.style.display = 'none';
-      });
+    const messagesEl=document.getElementById('messages'),scrollBtn=document.getElementById('scroll-bottom');
+    if(messagesEl&&scrollBtn){
+      messagesEl.addEventListener('scroll',()=>{scrollBtn.style.display=(messagesEl.scrollHeight-messagesEl.scrollTop-messagesEl.clientHeight>200)?'flex':'none';});
+      scrollBtn.addEventListener('click',()=>{messagesEl.scrollTop=messagesEl.scrollHeight;scrollBtn.style.display='none';});
     }
-
-    // Send button ripple effect
-    document.getElementById('btn-send').addEventListener('click', function() {
-      this.classList.add('ripple');
-      setTimeout(() => this.classList.remove('ripple'), 500);
-    });
   }
 
-  function clearAddForm() {
-    document.getElementById('add-invite').value = '';
-    document.getElementById('add-name').value = '';
-    document.getElementById('add-pubkey').value = '';
-    document.getElementById('add-x25519').value = '';
+  // === CONTEXT MENU ===
+  function showContextMenu(e, uid) {
+    e.stopPropagation();
+    const menu = document.getElementById('context-menu');
+    menu.dataset.uid = uid;
+    const rect = e.target.closest('.contact-item').getBoundingClientRect();
+    menu.style.top = Math.min(rect.bottom, window.innerHeight - 300) + 'px';
+    menu.style.left = Math.min(rect.left + 20, window.innerWidth - 220) + 'px';
+    menu.style.display = 'block';
   }
 
-  // === UNREAD TRACKING ===
-  let lastMessages = {}; // key -> last message preview
-  let prevTotalUnread = -1; // -1 = first check, will ping if any unread
+  function hideContextMenu() { document.getElementById('context-menu').style.display = 'none'; }
 
-  // Notification ping — pure Web Audio, no files needed
-  function playPing() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 880; // A5
-      osc.type = 'sine';
-      gain.gain.setValueAtTime(0.3, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.3);
-    } catch(e) {}
+  // === INVITE LINK PARSING ===
+  function parseInviteLink(link) {
+    link = link.trim();
+    const m = link.match(/^iskra:\/\/([A-Za-z0-9]+)\/([A-Za-z0-9]+)(?:\/(.+))?$/);
+    if(!m) return null;
+    return {pubkey:m[1],x25519:m[2],name:m[3]?decodeURIComponent(m[3]):''};
   }
 
-  function getLastRead(key) {
-    return parseInt(localStorage.getItem('iskra-lastread-' + key) || '0', 10);
+  // === UTILS ===
+  function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+  function clearAddForm(){['add-invite','add-name','add-pubkey','add-x25519'].forEach(id=>document.getElementById(id).value='');}
+
+  function formatDateTime(ts) {
+    const d=new Date(ts*1000),now=new Date(),time=d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+    const yesterday=new Date(now);yesterday.setDate(yesterday.getDate()-1);
+    if(d.toDateString()===now.toDateString()) return `${t('time_today')}, ${time}`;
+    if(d.toDateString()===yesterday.toDateString()) return `${t('time_yesterday')}, ${time}`;
+    return `${d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'})}, ${time}`;
   }
 
-  function markAsRead(key) {
-    // Use the latest message timestamp from cache instead of current time
-    // This prevents the counter from resetting on re-entry
-    let maxTs = 0;
-    if (key.startsWith('g:')) {
-      const gid = key.substring(2);
-      const msgs = groupMsgCache[gid];
-      if (msgs && msgs.length > 0) {
-        for (const m of msgs) { if (m.timestamp > maxTs) maxTs = m.timestamp; }
-      }
-    } else {
-      const msgs = msgCache[key];
-      if (msgs && msgs.length > 0) {
-        for (const m of msgs) { if (m.timestamp > maxTs) maxTs = m.timestamp; }
-      }
-    }
-    // Fallback to current time only if no messages in cache
-    if (maxTs === 0) maxTs = Math.floor(Date.now() / 1000);
-    const prev = getLastRead(key);
-    if (maxTs > prev) {
-      localStorage.setItem('iskra-lastread-' + key, maxTs.toString());
-    }
-    unreadCounts[key] = 0;
-    renderContacts();
+  function formatContactTime(ts) {
+    if(!ts) return '';
+    const d=new Date(ts*1000),now=new Date(),time=d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+    const yesterday=new Date(now);yesterday.setDate(yesterday.getDate()-1);
+    if(d.toDateString()===now.toDateString()) return time;
+    if(d.toDateString()===yesterday.toDateString()) return t('time_yesterday');
+    if(d.getFullYear()===now.getFullYear()) return d.toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
+    return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit'});
   }
 
-  async function updateUnreadCounts() {
-    // Build lastRead map from localStorage
-    const lastRead = {};
-    for (const c of contacts) {
-      lastRead[c.user_id] = getLastRead(c.user_id);
-    }
-    for (const g of groups) {
-      lastRead['g:' + g.id] = getLastRead('g:' + g.id);
-    }
+  window.closeModal = function(id){document.getElementById(id).style.display='none';};
 
-    try {
-      const resp = await fetch('/api/unread', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({lastRead})
-      });
-      const data = await resp.json();
-      const oldCounts = JSON.stringify(unreadCounts);
-      const oldMsgs = JSON.stringify(lastMessages);
-      unreadCounts = data.counts || {};
-      lastMessages = data.lastMsg || {};
-      // Update lastActivity from server timestamps for sorting
-      if (data.lastTs) {
-        Object.assign(lastActivity, data.lastTs);
-      }
-      // Play ping if new unread messages appeared
-      const totalUnread = Object.values(unreadCounts).reduce((a, b) => a + b, 0);
-      if (totalUnread > prevTotalUnread && prevTotalUnread >= 0) {
-        playPing();
-      }
-      prevTotalUnread = totalUnread;
-      // Force re-render if anything changed
-      if (JSON.stringify(unreadCounts) !== oldCounts || JSON.stringify(lastMessages) !== oldMsgs) {
-        lastRenderedHTML = '';
-      }
-      renderContacts();
-    } catch(e) { /* ignore */ }
-  }
-
-  function startPolling() {
-    // Messages: poll every 1s (always — renderMessages only touches #messages, not input)
-    setInterval(() => {
-      if (currentContact) loadMessages();
-      if (currentGroup) loadGroupMessages();
-      if (currentChannel) loadChannelPosts();
-    }, 1000);
-    // Sidebar: 1.5s — unread badges + auto-prefetch new messages
-    setInterval(() => {
-      updateUnreadCounts();
-    }, 1500);
-    // Status/online: 10s
-    setInterval(() => {
-      loadContacts().then(() => loadGroups()).then(() => loadChannels());
-      loadStatus();
-      loadOnline();
-    }, 10000);
-  }
-
-  function esc(s) {
-    const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
-  }
-
-  window.closeModal = function(id) {
-    document.getElementById(id).style.display = 'none';
-  };
-
-  // Hardware back button (Android) — go to chat list instead of exiting
-  window._handleBack = function() {
-    // Close any open modal first
-    const openModal = document.querySelector('.modal[style*="display: flex"], .modal[style*="display:flex"]');
-    if (openModal) {
-      openModal.style.display = 'none';
-      return true;
-    }
-    // If in chat, go back to contact list
-    if (document.getElementById('app').classList.contains('chat-open')) {
-      document.getElementById('btn-back').click();
-      return true;
-    }
-    return false; // let Android handle it (minimize)
+  // Hardware back (Android)
+  window._handleBack = function(){
+    const openModal=document.querySelector('.modal[style*="display: flex"],.modal[style*="display:flex"]');
+    if(openModal){openModal.style.display='none';return true;}
+    if(document.getElementById('settings-view').classList.contains('open')){document.getElementById('settings-view').classList.remove('open');return true;}
+    if(document.getElementById('chat-view').classList.contains('open')){closeChat();return true;}
+    return false;
   };
 
   document.addEventListener('DOMContentLoaded', init);

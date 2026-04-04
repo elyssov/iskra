@@ -46,7 +46,7 @@ func New(author *identity.Keypair, recipient RecipientKeys, text string) (*Messa
 func NewWithType(author *identity.Keypair, recipient RecipientKeys, contentType uint8, plaintext []byte) (*Message, error) {
 	msg := &Message{
 		Version:     ProtocolVersion,
-		TTL:         DefaultTTL,
+		TTL:         TTLForContentType(contentType),
 		Timestamp:   time.Now().Unix(),
 		ContentType: contentType,
 		AuthorPub:   author.Ed25519Pub,
@@ -82,7 +82,7 @@ func NewBroadcast(author *identity.Keypair, contentType uint8, plaintext []byte)
 	recipient := RecipientKeys{} // Zero keys = broadcast
 	msg := &Message{
 		Version:     ProtocolVersion,
-		TTL:         DefaultTTL,
+		TTL:         TTLForContentType(contentType),
 		Timestamp:   time.Now().Unix(),
 		ContentType: contentType,
 		AuthorPub:   author.Ed25519Pub,
@@ -111,7 +111,7 @@ func NewBroadcast(author *identity.Keypair, contentType uint8, plaintext []byte)
 func NewPlainBroadcast(author *identity.Keypair, contentType uint8, plaintext []byte) (*Message, error) {
 	msg := &Message{
 		Version:     ProtocolVersion,
-		TTL:         DefaultTTL,
+		TTL:         TTLForContentType(contentType),
 		Timestamp:   time.Now().Unix(),
 		ContentType: contentType,
 		AuthorPub:   author.Ed25519Pub,
