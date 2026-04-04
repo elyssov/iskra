@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+<title>Искра</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Экран выбора языка -->
+<div id="lang-screen">
+  <div class="lang-container">
+    <div class="lang-flame">🔥</div>
+    <h1 class="lang-title">Iskra</h1>
+    <p class="lang-subtitle">Choose your language / Выберите язык</p>
+    <div class="lang-buttons">
+      <button class="lang-btn" data-lang="ru">
+        <span class="lang-flag">🇷🇺</span>
+        <span class="lang-name">Русский</span>
+      </button>
+      <button class="lang-btn" data-lang="en">
+        <span class="lang-flag">🇬🇧</span>
+        <span class="lang-name">English</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Экран PIN -->
+<div id="pin-screen" style="display:none">
+  <div class="pin-container">
+    <div class="pin-flame">🔥</div>
+    <h1 class="pin-title">Искра</h1>
+    <p class="pin-subtitle" id="pin-subtitle" data-i18n="pin_enter">Введите PIN-код</p>
+    <div class="pin-dots" id="pin-dots">
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+      <span class="pin-dot"></span>
+    </div>
+    <div class="pin-error" id="pin-error"></div>
+    <div class="pin-keypad">
+      <button class="pin-key" data-num="1">1</button>
+      <button class="pin-key" data-num="2">2</button>
+      <button class="pin-key" data-num="3">3</button>
+      <button class="pin-key" data-num="4">4</button>
+      <button class="pin-key" data-num="5">5</button>
+      <button class="pin-key" data-num="6">6</button>
+      <button class="pin-key" data-num="7">7</button>
+      <button class="pin-key" data-num="8">8</button>
+      <button class="pin-key" data-num="9">9</button>
+      <button class="pin-key pin-key-empty"></button>
+      <button class="pin-key" data-num="0">0</button>
+      <button class="pin-key pin-key-del" id="pin-del">&larr;</button>
+    </div>
+    <button class="pin-submit-btn" id="pin-ok">Сохранить</button>
+    <div class="pin-attempts" id="pin-attempts"></div>
+  </div>
+</div>
+
+<!-- Экран первого запуска -->
+<div id="onboarding" style="display:none">
+  <div class="onboarding-container">
+    <div class="onboarding-flame">🔥</div>
+    <h1>Искра</h1>
+    <p class="onboarding-subtitle" data-i18n="onb_subtitle">Свободный мессенджер без серверов</p>
+    <div class="onboarding-card">
+      <p data-i18n="onb_key_created">Ваш ключ создан. Это ваш адрес в сети Искра — как номер телефона, только его невозможно заблокировать.</p>
+      <div class="onboarding-id" id="onboarding-id"></div>
+      <button class="btn-copy" id="btn-copy-link" data-i18n="onb_copy_link">Скопировать визитку для друзей</button>
+    </div>
+    <div class="onboarding-card warning">
+      <h3 data-i18n="onb_write_words">Запишите эти 24 слова</h3>
+      <p data-i18n="onb_words_warning">Это единственный способ восстановить доступ. Без них ваши сообщения потеряны навсегда. Запишите на бумагу. Не фотографируйте.</p>
+      <div class="mnemonic-grid" id="onboarding-mnemonic"></div>
+    </div>
+    <button class="btn-primary btn-large" id="btn-start" data-i18n="onb_start">Я записал(а) слова. Начать.</button>
+    <button class="btn-secondary btn-large" id="btn-restore" style="margin-top:8px" data-i18n="onb_restore">У меня уже есть 24 слова</button>
+  </div>
+</div>
+
+<!-- Основной интерфейс -->
+<div id="app" style="display:none">
+  <!-- Боковая панель -->
+  <div id="sidebar">
+    <div id="header">
+      <div id="header-top">
+        <div id="app-title">🔥 Искра <span id="build-num" style="font-size:11px;opacity:0.7;font-weight:400"></span></div>
+        <button id="btn-help" class="header-btn" title="Помощь">?</button>
+      </div>
+      <div id="my-id" title="Нажмите чтобы скопировать визитку"></div>
+      <div id="status-bar"></div>
+    </div>
+    <div id="update-banner" style="display:none"></div>
+    <div id="sidebar-body">
+      <div id="contacts-list"></div>
+      <div id="channels-section" style="display:none">
+        <div class="section-label" data-i18n="label_channels">Каналы</div>
+        <div id="channels-list"></div>
+      </div>
+      <div id="online-section" style="display:none">
+        <div class="section-label" data-i18n="label_online">В сети</div>
+        <div id="online-list"></div>
+      </div>
+    </div>
+    <div id="sidebar-footer">
+      <button id="btn-add-contact" title="Добавить контакт">
+        <span class="btn-icon">+</span> <span data-i18n="btn_add">Добавить</span>
+      </button>
+      <button id="btn-create-group" title="Создать группу">
+        <span class="btn-icon">G</span> <span data-i18n="btn_group">Группа</span>
+      </button>
+      <button id="btn-create-channel" title="Создать канал">
+        <span class="btn-icon">CH</span> <span data-i18n="btn_channel">Канал</span>
+      </button>
+      <button id="btn-show-id" title="Моя визитка и ключи">
+        <span class="btn-icon">ID</span> <span data-i18n="btn_key">Ключ</span>
+      </button>
+      <button id="btn-change-pin" title="Сменить PIN-код">
+        <span class="btn-icon">PIN</span> <span data-i18n="pin_btn_change">PIN</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Область чата -->
+  <div id="chat-area">
+    <div id="chat-header">
+      <button id="btn-back" class="mobile-only">←</button>
+      <span id="chat-contact-name" data-i18n-default="chat_select">Выберите контакт</span>
+      <span id="chat-encrypted" class="encrypted-badge">
+        <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        E2E
+      </span>
+      <span id="chat-contact-status"></span>
+      <div id="chat-actions">
+        <button id="btn-rename-contact" class="chat-action-btn" title="Переименовать" style="display:none">&#9998;</button>
+        <button id="btn-delete-chat" class="chat-action-btn" title="Удалить переписку" style="display:none">&#128465;</button>
+      </div>
+    </div>
+    <div id="welcome-screen">
+      <div class="welcome-flame-wrap">
+        <div class="welcome-pulse-ring"></div>
+        <div class="welcome-pulse-ring"></div>
+        <div class="welcome-pulse-ring"></div>
+        <div class="spark-container">
+          <div class="spark"></div><div class="spark"></div><div class="spark"></div>
+          <div class="spark"></div><div class="spark"></div><div class="spark"></div>
+          <div class="spark"></div><div class="spark"></div>
+        </div>
+        <div class="welcome-flame">🔥</div>
+      </div>
+      <h2 data-i18n="welcome_title">Добро пожаловать в Искру</h2>
+      <p data-i18n="welcome_text">Выберите контакт слева или добавьте нового, чтобы начать общение.</p>
+      <p class="welcome-hint">
+        <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        <span data-i18n="welcome_encrypted">Сквозное шифрование. Никто не может прочитать ваши сообщения.</span>
+      </p>
+      <p class="welcome-quote" data-i18n="welcome_quote">«Из искры возгорится пламя»</p>
+    </div>
+    <div id="messages"></div>
+    <button id="scroll-bottom" title="Новые сообщения">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+    </button>
+    <div id="typing-indicator">
+      <div class="typing-dots"><span></span><span></span><span></span></div>
+      <span class="typing-text" data-i18n="typing">печатает...</span>
+    </div>
+    <div id="input-area" style="display:none">
+      <input type="file" id="file-input" style="display:none" accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip,.rar" />
+      <button id="btn-attach" title="Прикрепить файл" style="padding:8px;background:none;border:none;cursor:pointer;opacity:0.5">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+      </button>
+      <textarea id="msg-input" data-i18n-placeholder="chat_placeholder" placeholder="Написать сообщение..." rows="1"></textarea>
+      <button id="btn-send" title="Отправить (Enter)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Модальное: Помощь (содержимое генерируется из JS на выбранном языке) -->
+<div id="modal-help" class="modal" style="display:none">
+  <div class="modal-content modal-large" id="help-content"></div>
+</div>
+
+<!-- Модальное: Мой ключ -->
+<div id="modal-id" class="modal" style="display:none">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 data-i18n="modal_key_title">🔑 Ваша визитка</h3>
+      <button class="modal-close" onclick="closeModal('modal-id')">&times;</button>
+    </div>
+    <p class="help-text" data-i18n="modal_key_text">Отправьте визитку друзьям любым способом — через Telegram, SMS, email, продиктуйте вслух. По ней они добавят вас в свою Искру.</p>
+    <div class="invite-link" id="modal-invite-link"></div>
+    <button class="btn-primary btn-block" id="btn-copy-invite" data-i18n="modal_key_copy">Скопировать визитку</button>
+
+    <div class="divider"></div>
+
+    <details class="tech-details">
+      <summary data-i18n="modal_key_tech">Технические данные (для продвинутых)</summary>
+      <p><strong>ID:</strong> <span id="modal-user-id"></span></p>
+      <p><strong>Ed25519:</strong></p>
+      <code id="modal-pubkey"></code>
+      <p><strong>X25519:</strong></p>
+      <code id="modal-x25519"></code>
+    </details>
+
+    <div class="divider"></div>
+
+    <details class="tech-details">
+      <summary data-i18n="modal_key_mnemonic">24 слова для восстановления</summary>
+      <div class="mnemonic-grid" id="modal-mnemonic"></div>
+      <p class="warning-text" data-i18n="modal_key_warning">Никому не показывайте эти слова. Тот, кто их знает — может читать все ваши сообщения.</p>
+    </details>
+  </div>
+</div>
+
+<!-- Модальное: Добавить контакт -->
+<div id="modal-add" class="modal" style="display:none">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 data-i18n="modal_add_title">Добавить контакт</h3>
+      <button class="modal-close" onclick="closeModal('modal-add')">&times;</button>
+    </div>
+    <p class="help-text" data-i18n="modal_add_text">Вставьте визитку друга (начинается с iskra://) или введите данные вручную.</p>
+    <input id="add-invite" data-i18n-placeholder="modal_add_invite_ph" placeholder="Вставьте визитку iskra://..." class="input-large" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+    <div class="divider-text" data-i18n="modal_add_or">или вручную</div>
+    <input id="add-name" data-i18n-placeholder="modal_add_name_ph" placeholder="Имя друга" />
+    <input id="add-pubkey" data-i18n-placeholder="modal_add_pubkey_ph" placeholder="Публичный ключ" />
+    <input id="add-x25519" data-i18n-placeholder="modal_add_x25519_ph" placeholder="Ключ шифрования" />
+    <div class="modal-buttons">
+      <button class="btn-primary" id="btn-add-save" data-i18n="btn_add">Добавить</button>
+      <button class="btn-secondary" onclick="closeModal('modal-add')" data-i18n="btn_cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модальное: Импорт -->
+<div id="modal-import" class="modal" style="display:none">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Импорт контактов</h3>
+      <button class="modal-close" onclick="closeModal('modal-import')">&times;</button>
+    </div>
+    <p class="help-text">Вставьте данные контактов в формате JSON.</p>
+    <textarea id="import-json" placeholder='[{"name":"Имя","publicKey":"...","x25519Key":"..."}]' rows="5"></textarea>
+    <div class="modal-buttons">
+      <button class="btn-primary" id="btn-import-save">Импортировать</button>
+      <button class="btn-secondary" onclick="closeModal('modal-import')">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модальное: Восстановление -->
+<div id="modal-restore" class="modal" style="display:none">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 data-i18n="modal_restore_title">Восстановление из мнемоники</h3>
+      <button class="modal-close" onclick="closeModal('modal-restore')">&times;</button>
+    </div>
+    <p class="help-text" data-i18n="modal_restore_text">Введите ваши 24 слова через пробел. После восстановления приложение перезапустится с вашим ключом.</p>
+    <textarea id="restore-words" data-i18n-placeholder="modal_restore_ph" placeholder="слово1 слово2 слово3 ... слово24" rows="4" class="input-large" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true"></textarea>
+    <div id="restore-error" style="color:#e17055;margin:8px 0;display:none"></div>
+    <div class="modal-buttons">
+      <button class="btn-primary" id="btn-restore-go" data-i18n="btn_restore">Восстановить</button>
+      <button class="btn-secondary" onclick="closeModal('modal-restore')" data-i18n="btn_cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модальное: Создать группу -->
+<div id="modal-group" class="modal" style="display:none">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 data-i18n="modal_group_title">Создать группу</h3>
+      <button class="modal-close" onclick="closeModal('modal-group')">&times;</button>
+    </div>
+    <p class="help-text" data-i18n="modal_group_text">Выберите контакты для группового чата.</p>
+    <input id="group-name" data-i18n-placeholder="modal_group_name_ph" placeholder="Название группы" class="input-large" />
+    <div id="group-members-list" class="group-members-list"></div>
+    <div class="modal-buttons">
+      <button class="btn-primary" id="btn-group-create" data-i18n="btn_create">Создать</button>
+      <button class="btn-secondary" onclick="closeModal('modal-group')" data-i18n="btn_cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

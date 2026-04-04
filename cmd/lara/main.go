@@ -203,7 +203,7 @@ func startNode() {
 			log.Printf("📩 Входящее сообщение от %s, type=%d", hex.EncodeToString(msg.AuthorPub[:4]), msg.ContentType)
 		}
 		api.HandleIncomingMessage(msg)
-		if !forMe {
+		if !forMe && message.ShouldStoreInHold(msg.ContentType) {
 			hold.Store(msg)
 		}
 	}

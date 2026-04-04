@@ -139,63 +139,6 @@ const I18N = {
     update_error: 'Ошибка',
     update_download_error: 'Ошибка загрузки:',
 
-    // Tabs
-    tab_contacts: 'Контакты',
-    tab_chats: 'Чаты',
-    tab_mail: 'Почта',
-
-    // Contacts
-    label_my_contacts: 'Мои контакты',
-    search_placeholder: 'Поиск...',
-    btn_scan: 'Скан QR',
-
-    // Chats
-    btn_new_chat: 'Новый чат',
-    chats_empty_title: 'Нет чатов',
-    chats_empty_text: 'Начните разговор — выберите контакт',
-
-    // Mail
-    label_inbox: 'Входящие',
-    label_sent: 'Отправленные',
-    btn_compose: '✏️ Написать',
-    compose_title: 'Новое письмо',
-    compose_to: 'Кому...',
-    compose_subject: 'Тема...',
-    compose_body: 'Текст письма...',
-    mail_empty_title: 'Нет писем',
-    mail_empty_text: 'Здесь будет ваша почта',
-    btn_reply: '↩️ Ответить',
-    btn_forward: '↗️ Переслать',
-
-    // Context menu
-    ctx_message: 'Сообщение',
-    ctx_letter: 'Письмо',
-    ctx_copy: 'Визитка',
-    ctx_qr: 'QR-код',
-    ctx_forward: 'Переслать',
-    ctx_rename: 'Переименовать',
-    ctx_delete: 'Удалить',
-
-    // Settings
-    settings_title: 'Настройки',
-    settings_profile: 'Профиль',
-    settings_name: 'Имя',
-    settings_qr: 'Моя визитка / QR',
-    settings_mnemonic: '24 слова',
-    settings_appearance: 'Внешний вид',
-    settings_theme: 'Тема',
-    theme_light: 'Светлая',
-    theme_dark: 'Тёмная',
-    theme_auto: 'Авто',
-    settings_security: 'Безопасность',
-    settings_change_pin: 'Сменить PIN',
-    settings_about: 'О программе',
-    settings_hold: 'Трюм',
-
-    // QR
-    qr_title: '📲 Моя визитка',
-    qr_copy: 'Скопировать визитку',
-
     // Panic
     panic_prompt: 'Введите код:',
 
@@ -222,10 +165,6 @@ const I18N = {
     help_online_text3: 'Незнакомцев тоже можно добавить — нажмите на псевдоним, и контакт создастся автоматически.',
     help_hold_title: 'Что такое «трюм»?',
     help_hold_text: 'Каждый телефон с Искрой носит в «трюме» чужие зашифрованные сообщения и передаёт их дальше при встрече с другими телефонами. Вы не можете их прочитать — они зашифрованы для других людей. Но вы помогаете им дойти.',
-    help_mail_title: 'Что такое «Почта»?',
-    help_mail_text: 'Почта — для важных сообщений, которые должны дойти наверняка. Письма хранятся в сети до 60 дней (обычные чаты — 15). Используйте для приказов, инструкций, документов и всего, что не должно потеряться.',
-    help_tabs_title: 'Три вкладки',
-    help_tabs_text: '<strong>Контакты</strong> — все ваши контакты и люди в сети. Нажмите на контакт, чтобы написать сообщение, письмо или скопировать визитку.<br><strong>Чаты</strong> — ваши текущие переписки, группы и каналы.<br><strong>Почта</strong> — входящие и отправленные письма.',
     help_motto: '«Из искры возгорится пламя»',
   },
 
@@ -364,63 +303,6 @@ const I18N = {
     update_error: 'Error',
     update_download_error: 'Download error:',
 
-    // Tabs
-    tab_contacts: 'Contacts',
-    tab_chats: 'Chats',
-    tab_mail: 'Mail',
-
-    // Contacts
-    label_my_contacts: 'My contacts',
-    search_placeholder: 'Search...',
-    btn_scan: 'Scan QR',
-
-    // Chats
-    btn_new_chat: 'New chat',
-    chats_empty_title: 'No chats',
-    chats_empty_text: 'Start a conversation — select a contact',
-
-    // Mail
-    label_inbox: 'Inbox',
-    label_sent: 'Sent',
-    btn_compose: '✏️ Compose',
-    compose_title: 'New letter',
-    compose_to: 'To...',
-    compose_subject: 'Subject...',
-    compose_body: 'Letter body...',
-    mail_empty_title: 'No mail',
-    mail_empty_text: 'Your mail will appear here',
-    btn_reply: '↩️ Reply',
-    btn_forward: '↗️ Forward',
-
-    // Context menu
-    ctx_message: 'Message',
-    ctx_letter: 'Letter',
-    ctx_copy: 'Copy invite',
-    ctx_qr: 'QR code',
-    ctx_forward: 'Forward contact',
-    ctx_rename: 'Rename',
-    ctx_delete: 'Delete',
-
-    // Settings
-    settings_title: 'Settings',
-    settings_profile: 'Profile',
-    settings_name: 'Name',
-    settings_qr: 'My invite / QR',
-    settings_mnemonic: '24 words',
-    settings_appearance: 'Appearance',
-    settings_theme: 'Theme',
-    theme_light: 'Light',
-    theme_dark: 'Dark',
-    theme_auto: 'Auto',
-    settings_security: 'Security',
-    settings_change_pin: 'Change PIN',
-    settings_about: 'About',
-    settings_hold: 'Hold',
-
-    // QR
-    qr_title: '📲 My invite',
-    qr_copy: 'Copy invite link',
-
     // Panic
     panic_prompt: 'Enter code:',
 
@@ -447,10 +329,6 @@ const I18N = {
     help_online_text3: 'You can also add strangers — click on the alias and a contact will be created automatically.',
     help_hold_title: 'What is the "hold"?',
     help_hold_text: 'Every phone with Iskra carries encrypted messages from other people in its "hold" and passes them on when meeting other phones. You can\'t read them — they\'re encrypted for other people. But you help them reach their destination.',
-    help_mail_title: 'What is "Mail"?',
-    help_mail_text: 'Mail is for important messages that must be delivered reliably. Letters are stored in the network for up to 60 days (regular chats — 15). Use for orders, instructions, documents, and anything that must not be lost.',
-    help_tabs_title: 'Three tabs',
-    help_tabs_text: '<strong>Contacts</strong> — your contacts and people online. Tap a contact to send a message, letter, or copy their invite.<br><strong>Chats</strong> — your conversations, groups, and channels.<br><strong>Mail</strong> — inbox and sent letters.',
     help_motto: '"A spark will kindle a flame"',
   }
 };
@@ -496,9 +374,7 @@ function translatePage() {
       <div class="help-section"><h4>${t('help_checks_title')}</h4><p>${t('help_checks_text')}</p></div>
       <div class="help-section"><h4>${t('help_online_title')}</h4><p>${t('help_online_text')}</p><p>${t('help_online_text2')}</p><p>${t('help_online_text3')}</p></div>
       <div class="help-section"><h4>${t('help_hold_title')}</h4><p>${t('help_hold_text')}</p></div>
-      <div class="help-section"><h4>${t('help_mail_title')}</h4><p>${t('help_mail_text')}</p></div>
-      <div class="help-section"><h4>${t('help_tabs_title')}</h4><p>${t('help_tabs_text')}</p></div>
-      <div class="help-section help-motto"><p><em>${t('help_motto')}</em></p><p class="help-small">Iskra 2.0 "Восток" — Поехали!</p></div>
+      <div class="help-section help-motto"><p><em>${t('help_motto')}</em></p><p class="help-small">Iskra 0.5.0-alpha</p></div>
     `;
   }
 }

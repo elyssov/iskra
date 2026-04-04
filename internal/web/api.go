@@ -24,7 +24,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "22"
+const BuildNumber = "1" // Iskra 2.0 "Vostok"
 
 // API handles REST API requests.
 type API struct {
@@ -444,6 +444,22 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 					a.Groups.AddByInvite(group)
 				}
 			}
+
+		case message.ContentLetter:
+			senderID := identity.UserID(msg.AuthorPub)
+			log.Printf("[Mail] Letter from %s, len=%d", senderID[:8], len(plaintext))
+			a.Inbox.AddMessage(senderID, store.InboxMessage{
+				ID:        hex.EncodeToString(msg.ID[:]),
+				From:      senderID,
+				FromPub:   identity.ToBase58(msg.AuthorPub[:]),
+				Text:      string(plaintext), // JSON: {"subject":"...","body":"..."}
+				Timestamp: msg.Timestamp,
+				Status:    "delivered",
+				Outgoing:  false,
+			})
+			a.Contacts.UpdateLastSeen(senderID, time.Now().Unix())
+			if a.DataDir != "" { go a.Inbox.Save(a.InboxFilePath()) }
+			go a.sendDeliveryConfirm(msg)
 
 		case message.ContentFileChunk:
 			if a.FileMgr != nil {
@@ -1503,6 +1519,90 @@ func (a *API) HandleLaraCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─── File transfer (chunked encrypted) ──────────────────────────────
+
+// HandleLetters handles GET (inbox) and POST (send) for letters/mail.
+func (a *API) HandleLetters(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/letters/")
+	userID := strings.TrimRight(path, "/")
+
+	switch r.Method {
+	case http.MethodGet:
+		// Return letters from inbox (filter by ContentType in stored messages)
+		msgs := a.Inbox.GetMessages(userID)
+		// TODO: filter by letter type when we have separate letter storage
+		writeJSON(w, msgs)
+
+	case http.MethodPost:
+		if userID == "" {
+			http.Error(w, "userID required", http.StatusBadRequest)
+			return
+		}
+		var req struct {
+			Subject string `json:"subject"`
+			Body    string `json:"body"`
+		}
+		if err := readJSON(r, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		contact := a.Contacts.GetByUserID(userID)
+		if contact == nil {
+			http.Error(w, "contact not found", http.StatusNotFound)
+			return
+		}
+
+		edPubBytes, err := identity.FromBase58(contact.PubKey)
+		if err != nil {
+			http.Error(w, "invalid contact key", http.StatusInternalServerError)
+			return
+		}
+		var recipientKeys message.RecipientKeys
+		copy(recipientKeys.Ed25519Pub[:], edPubBytes)
+		if contact.X25519Pub != "" {
+			if xBytes, err := identity.FromBase58(contact.X25519Pub); err == nil {
+				copy(recipientKeys.X25519Pub[:], xBytes)
+			}
+		}
+
+		// Letter payload: JSON with subject + body
+		payload := fmt.Sprintf(`{"subject":%q,"body":%q}`, req.Subject, req.Body)
+		msg, err := message.NewWithType(a.Keypair, recipientKeys, message.ContentLetter, []byte(payload))
+		if err != nil {
+			http.Error(w, "failed to create letter", http.StatusInternalServerError)
+			return
+		}
+
+		msgID := hex.EncodeToString(msg.ID[:])
+		a.Bloom.Add(msg.ID)
+		a.Hold.Store(msg)
+
+		sendStatus := "pending"
+		if a.Transport != nil {
+			a.Transport.BroadcastMessage(msg)
+			if a.Peers.Count() > 0 { sendStatus = "sent" }
+		}
+		if a.RelayClient != nil && a.RelayClient.IsConnected() {
+			if err := a.RelayClient.SendMessage(msg); err == nil { sendStatus = "sent" }
+		}
+
+		a.Inbox.AddMessage(userID, store.InboxMessage{
+			ID:        msgID,
+			From:      identity.UserID(a.Keypair.Ed25519Pub),
+			FromPub:   identity.ToBase58(a.Keypair.Ed25519Pub[:]),
+			Text:      fmt.Sprintf("[%s] %s", req.Subject, req.Body),
+			Timestamp: msg.Timestamp,
+			Status:    sendStatus,
+			Outgoing:  true,
+		})
+
+		if a.DataDir != "" { go a.Inbox.Save(a.InboxFilePath()) }
+		writeJSON(w, map[string]string{"status": sendStatus, "id": msgID})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
 
 // HandleSendFile accepts a multipart file upload and sends it as chunked messages.
 func (a *API) HandleSendFile(w http.ResponseWriter, r *http.Request) {
