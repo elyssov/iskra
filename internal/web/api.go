@@ -24,7 +24,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "1" // Iskra 2.0 "Vostok"
+const BuildNumber = "2" // Iskra 2.0 Build 2 "Bastille"
 
 // API handles REST API requests.
 type API struct {
@@ -448,11 +448,23 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 		case message.ContentLetter:
 			senderID := identity.UserID(msg.AuthorPub)
 			log.Printf("[Mail] Letter from %s, len=%d", senderID[:8], len(plaintext))
+			// Parse letter JSON
+			var letterData struct {
+				Subject string `json:"subject"`
+				Body    string `json:"body"`
+			}
+			subject, body := "", string(plaintext)
+			if json.Unmarshal(plaintext, &letterData) == nil {
+				subject = letterData.Subject
+				body = letterData.Body
+			}
 			a.Inbox.AddMessage(senderID, store.InboxMessage{
 				ID:        hex.EncodeToString(msg.ID[:]),
 				From:      senderID,
 				FromPub:   identity.ToBase58(msg.AuthorPub[:]),
-				Text:      string(plaintext), // JSON: {"subject":"...","body":"..."}
+				Text:      body,
+				Subject:   subject,
+				MsgType:   "letter",
 				Timestamp: msg.Timestamp,
 				Status:    "delivered",
 				Outgoing:  false,
@@ -1527,10 +1539,19 @@ func (a *API) HandleLetters(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		// Return letters from inbox (filter by ContentType in stored messages)
-		msgs := a.Inbox.GetMessages(userID)
-		// TODO: filter by letter type when we have separate letter storage
-		writeJSON(w, msgs)
+		if userID == "" {
+			// Return ALL letters across all contacts
+			writeJSON(w, a.Inbox.GetAllLetters())
+		} else {
+			// Return letters for specific contact
+			var letters []store.InboxMessage
+			for _, m := range a.Inbox.GetMessages(userID) {
+				if m.MsgType == "letter" || m.Subject != "" {
+					letters = append(letters, m)
+				}
+			}
+			writeJSON(w, letters)
+		}
 
 	case http.MethodPost:
 		if userID == "" {
@@ -1590,7 +1611,9 @@ func (a *API) HandleLetters(w http.ResponseWriter, r *http.Request) {
 			ID:        msgID,
 			From:      identity.UserID(a.Keypair.Ed25519Pub),
 			FromPub:   identity.ToBase58(a.Keypair.Ed25519Pub[:]),
-			Text:      fmt.Sprintf("[%s] %s", req.Subject, req.Body),
+			Text:      req.Body,
+			Subject:   req.Subject,
+			MsgType:   "letter",
 			Timestamp: msg.Timestamp,
 			Status:    sendStatus,
 			Outgoing:  true,

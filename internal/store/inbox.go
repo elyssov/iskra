@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,8 +22,10 @@ type InboxMessage struct {
 	FromPub   string `json:"from_pub"`   // Base58 Ed25519 pub of sender
 	Text      string `json:"text"`
 	Timestamp int64  `json:"timestamp"`
-	Status    string `json:"status"`     // "sent", "delivered"
+	Status    string `json:"status"`     // "pending", "sent", "delivered"
 	Outgoing  bool   `json:"outgoing"`   // true if we sent it
+	MsgType   string `json:"msg_type,omitempty"` // "" = chat, "letter" = mail
+	Subject   string `json:"subject,omitempty"`  // letter subject line
 }
 
 // Inbox manages decrypted message history per contact.
@@ -76,6 +79,40 @@ func (in *Inbox) GetMessages(contactID string) []InboxMessage {
 	msgs := in.messages[contactID]
 	result := make([]InboxMessage, len(msgs))
 	copy(result, msgs)
+	return result
+}
+
+// GetAllLetters returns all messages with MsgType "letter" across all contacts.
+func (in *Inbox) GetAllLetters() []InboxMessage {
+	in.mu.RLock()
+	defer in.mu.RUnlock()
+	var result []InboxMessage
+	for uid, msgs := range in.messages {
+		for _, m := range msgs {
+			isLetter := m.MsgType == "letter" || m.Subject != "" || (len(m.Text) > 2 && m.Text[0] == '[' && strings.Contains(m.Text, "] "))
+			if isLetter {
+				// Migrate old format: "[Subject] Body" → separate fields
+				if m.Subject == "" && len(m.Text) > 2 && m.Text[0] == '[' {
+					if idx := strings.Index(m.Text, "] "); idx > 0 {
+						m.Subject = m.Text[1:idx]
+						m.Text = m.Text[idx+2:]
+						m.MsgType = "letter"
+					}
+				}
+			}
+			if isLetter {
+				msg := m
+				if !msg.Outgoing {
+					msg.From = uid
+				} else {
+					// For outgoing: store recipient as "To"
+					msg.FromPub = uid // reuse field to carry recipient uid
+				}
+				result = append(result, msg)
+			}
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Timestamp > result[j].Timestamp })
 	return result
 }
 
