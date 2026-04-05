@@ -71,6 +71,12 @@ func main() {
 		holdStats()
 	case "unread":
 		apiUnread()
+	case "letter", "l":
+		if len(os.Args) < 5 {
+			fmt.Println("Usage: lara letter <userID> <subject> <body>")
+			os.Exit(1)
+		}
+		apiSendLetter(os.Args[2], os.Args[3], strings.Join(os.Args[4:], " "))
 	case "broadcast", "bc":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: lara broadcast <message>")
@@ -340,6 +346,29 @@ func apiSend(userID, text string) {
 	json.NewDecoder(resp.Body).Decode(&result)
 	if status, ok := result["status"]; ok {
 		fmt.Printf("✓ Отправлено (%s)\n", status)
+	} else {
+		out, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(out))
+	}
+}
+
+func apiSendLetter(userID, subject, body string) {
+	port := getPort()
+	if port == "0" {
+		fmt.Println("Нода не запущена. Сначала: lara start")
+		os.Exit(1)
+	}
+	payload := fmt.Sprintf(`{"subject":%q,"body":%q}`, subject, body)
+	resp, err := http.Post(baseURL()+"/api/letters/"+userID, "application/json", strings.NewReader(payload))
+	if err != nil {
+		fmt.Printf("Ошибка: %v\n", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if status, ok := result["status"]; ok {
+		fmt.Printf("✉️ Письмо отправлено (%s)\n", status)
 	} else {
 		out, _ := json.MarshalIndent(result, "", "  ")
 		fmt.Println(string(out))

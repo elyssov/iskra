@@ -166,6 +166,13 @@
   }
 
   async function proceedAfterPIN() {
+    // Setup UI event handlers FIRST — before any network calls
+    // so buttons work even if network is slow/broken
+    setupTabs();
+    setupEvents();
+    setupPanicMode();
+    setupKeyboardResize();
+
     const identity = await loadIdentity();
     if (!identity) return;
     if (!localStorage.getItem('iskra-started')) { showOnboarding(identity); } else { showApp(); }
@@ -179,10 +186,6 @@
     loadOnline();
     updateUnreadCounts();
     startPolling();
-    setupTabs();
-    setupEvents();
-    setupPanicMode();
-    setupKeyboardResize();
   }
 
   function setupKeyboardResize() {
@@ -393,12 +396,152 @@
   }
 
   // === MAIL LIST (Tab 3) ===
+  let letters = []; // {id, from, fromName, subject, body, timestamp, outgoing, status}
+
+  async function loadLetters() {
+    try {
+      const r = await fetch('/api/letters/');
+      const data = await r.json();
+      letters = data || [];
+    } catch(e) { letters = []; }
+  }
+
   function renderMailList() {
-    const list = document.getElementById('mail-list');
-    if (!list) return;
-    // TODO: implement mail storage & rendering
-    // For now, show empty state
-    list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">✉️</div><h3>${t('mail_empty_title')||'Нет писем'}</h3><p>${t('mail_empty_text')||'Здесь будет ваша почта'}</p></div>`;
+    loadLetters().then(() => renderMailFolders());
+  }
+
+  function renderMailFolders() {
+    const inbox = letters.filter(l => !l.outgoing);
+    const sent = letters.filter(l => l.outgoing && l.status !== 'delivered');
+    const delivered = letters.filter(l => l.outgoing && l.status === 'delivered');
+
+    renderLetterList('mail-inbox-list', inbox, false);
+    renderLetterList('mail-sent-list', sent, true);
+    renderLetterList('mail-delivered-list', delivered, true);
+  }
+
+  function renderLetterList(containerId, items, outgoing) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (items.length === 0) {
+      el.innerHTML = `<div class="mail-empty">Пусто</div>`;
+      return;
+    }
+    el.innerHTML = items.map(l => {
+      const uid = outgoing ? (l.from_pub || l.from || '') : (l.from || '');
+      const name = outgoing ? (contactName(uid) || uid.substring(0,8)) : (contactName(l.from) || l.from || '').substring(0,20);
+      const time = formatContactTime(l.timestamp);
+      const preview = (l.text||'').substring(0,60);
+      return `<div class="letter-item" data-lid="${l.id}">
+        <div class="letter-info">
+          <div class="letter-row"><span class="letter-sender">${esc(name)}</span><span class="letter-date">${time}</span></div>
+          <div class="letter-subject">${esc(l.subject||'(без темы)')}</div>
+          <div class="letter-preview">${esc(preview)}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function contactName(uid) {
+    const c = contacts.find(x=>x.user_id===uid);
+    return c ? c.name : null;
+  }
+
+  // Open letter
+  function openLetter(letter) {
+    const fromName = letter.outgoing ? '' : (contactName(letter.from) || letter.from || '');
+    document.getElementById('letter-title').textContent = letter.subject || '(без темы)';
+    document.getElementById('letter-meta').innerHTML = `<div>${letter.outgoing ? 'Кому' : 'От'}: <b>${esc(letter.outgoing ? (contactName(letter.from_pub)||letter.from_pub||'') : fromName)}</b></div><div>${formatDateTime(letter.timestamp)}</div>`;
+    document.getElementById('letter-subject').textContent = letter.subject || '';
+    document.getElementById('letter-body').textContent = letter.text || '';
+    document.getElementById('letter-view').dataset.fromName = fromName;
+    document.getElementById('letter-view').dataset.fromUid = letter.from || '';
+    document.getElementById('letter-view').classList.add('open');
+  }
+
+  // Compose letter
+  function openCompose(recipientName) {
+    document.getElementById('compose-to').value = recipientName || '';
+    document.getElementById('compose-subject').value = '';
+    document.getElementById('compose-body').value = '';
+    document.getElementById('compose-view').classList.add('open');
+    if (!recipientName) {
+      setTimeout(() => document.getElementById('compose-to').focus(), 100);
+    } else {
+      setTimeout(() => document.getElementById('compose-subject').focus(), 100);
+    }
+  }
+
+  function setupComposeDropdown() {
+    const input = document.getElementById('compose-to');
+    const dropdown = document.getElementById('compose-contacts-dropdown');
+    if (!input || !dropdown) return;
+
+    function renderDropdown(filter) {
+      const f = (filter || '').toLowerCase();
+      const filtered = contacts.filter(c => !f || c.name.toLowerCase().includes(f) || c.user_id.toLowerCase().includes(f));
+      if (filtered.length === 0) { dropdown.classList.remove('open'); return; }
+      dropdown.innerHTML = filtered.map(c => {
+        const color = isSpecialContact(c.user_id) ? '#B8860B' : getAvatarColor(c.name);
+        const initial = (c.name||'?')[0].toUpperCase();
+        return `<div class="dropdown-contact" data-uid="${c.user_id}" data-name="${esc(c.name)}">
+          <div class="dc-avatar" style="background:${color}">${initial}</div>
+          <div><div class="dc-name">${esc(c.name)}</div><div class="dc-id">${c.user_id}</div></div>
+        </div>`;
+      }).join('');
+      dropdown.classList.add('open');
+    }
+
+    input.addEventListener('focus', () => renderDropdown(input.value));
+    input.addEventListener('input', () => renderDropdown(input.value));
+
+    dropdown.addEventListener('click', e => {
+      const el = e.target.closest('.dropdown-contact');
+      if (el) {
+        input.value = el.dataset.name;
+        input.dataset.selectedUid = el.dataset.uid;
+        dropdown.classList.remove('open');
+        document.getElementById('compose-subject').focus();
+      }
+    });
+
+    // Close dropdown on click outside
+    document.addEventListener('click', e => {
+      if (!e.target.closest('#compose-to-wrapper')) dropdown.classList.remove('open');
+    });
+  }
+
+  async function sendLetter() {
+    const toInput = document.getElementById('compose-to');
+    const toVal = toInput.value.trim();
+    const subject = document.getElementById('compose-subject').value.trim();
+    const body = document.getElementById('compose-body').value.trim();
+    if (!toVal || !body) { showToast(t('letter_fill')||'Заполните получателя и текст'); return; }
+    // Resolve recipient — prefer selected uid from dropdown, fallback to name/id match
+    let uid = toInput.dataset.selectedUid || '';
+    if (!uid) {
+      const byName = contacts.find(c => c.name.toLowerCase() === toVal.toLowerCase());
+      if (byName) uid = byName.user_id;
+      else {
+        const byUID = contacts.find(c => c.user_id === toVal);
+        if (byUID) uid = byUID.user_id;
+      }
+    }
+    if (!uid) { showToast(t('letter_unknown')||'Контакт не найден'); return; }
+    try {
+      const r = await fetch(`/api/letters/${uid}`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({subject, body})});
+      if (r.ok) {
+        document.getElementById('compose-view').classList.remove('open');
+        showToast(t('letter_sent')||'Письмо отправлено');
+        // Add to local letters list
+        const d = await r.json();
+        letters.unshift({id:d.id||'', from:window._identity?.userID, to:uid, fromName:'Вы', subject, body, timestamp:Math.floor(Date.now()/1000), outgoing:true, status:d.status});
+        renderMailList();
+      } else {
+        const err = await r.text();
+        showToast(err || 'Ошибка отправки');
+      }
+    } catch(e) { showToast('Ошибка сети'); }
   }
 
   // === CHAT VIEW ===
@@ -643,7 +786,10 @@
       hideContextMenu();
       const contact=contacts.find(c=>c.user_id===uid)||{user_id:uid,name:uid.substring(0,8)};
       if(action==='message'){switchTab('chats');openChat(contact);}
-      else if(action==='copy'){const id=window._identity;if(id)navigator.clipboard.writeText(makeInviteLink(id));}
+      else if(action==='letter'){switchTab('mail');openCompose(contact.name||contact.user_id);}
+      else if(action==='copy'){copyToClipboard(contact);}
+      else if(action==='qr'){showContactQR(contact);}
+      else if(action==='forward'){copyToClipboard(contact);}
       else if(action==='rename'){const n=prompt(t('rename_prompt'),contact.name);if(n&&n!==contact.name)fetch(`/api/contacts/rename/${uid}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n})}).then(()=>loadContacts());}
       else if(action==='delete'){if(confirm(`${t('delete_chat_confirm')} ${contact.name}?`))fetch(`/api/chat/delete/${uid}`,{method:'POST'}).then(()=>loadContacts());}
     });
@@ -754,6 +900,40 @@
       navigator.clipboard.writeText(link).then(()=>{document.getElementById('btn-copy-qr').textContent=t('btn_copied');setTimeout(()=>document.getElementById('btn-copy-qr').textContent=t('qr_copy'),2000);});
     });
 
+    // Mail: compose button + dropdown
+    setupComposeDropdown();
+    document.getElementById('btn-compose').addEventListener('click',()=>openCompose(''));
+    // Mail: send letter
+    document.getElementById('btn-compose-send').addEventListener('click',sendLetter);
+    document.getElementById('btn-compose-back').addEventListener('click',()=>document.getElementById('compose-view').classList.remove('open'));
+    // Mail: letter back, reply, forward
+    document.getElementById('btn-letter-back').addEventListener('click',()=>document.getElementById('letter-view').classList.remove('open'));
+    document.getElementById('btn-letter-reply').addEventListener('click',()=>{
+      const subj = document.getElementById('letter-subject').textContent || '';
+      const from = document.getElementById('letter-view').dataset.fromName || '';
+      document.getElementById('letter-view').classList.remove('open');
+      openCompose(from);
+      document.getElementById('compose-subject').value = subj.startsWith('Re:') ? subj : 'Re: ' + subj;
+    });
+    document.getElementById('btn-letter-forward').addEventListener('click',()=>{
+      const subj = document.getElementById('letter-subject').textContent || '';
+      const body = document.getElementById('letter-body').textContent || '';
+      document.getElementById('letter-view').classList.remove('open');
+      openCompose('');
+      document.getElementById('compose-subject').value = 'Fwd: ' + subj;
+      document.getElementById('compose-body').value = '\n\n--- Пересланное письмо ---\n' + body;
+    });
+    // Mail: letter list clicks (delegation on all three folders)
+    ['mail-inbox-list','mail-sent-list','mail-delivered-list'].forEach(id=>{
+      const container=document.getElementById(id);
+      if(container) container.addEventListener('click',e=>{
+        const el=e.target.closest('.letter-item');
+        if(el){const l=letters.find(x=>x.id===el.dataset.lid);if(l)openLetter(l);}
+      });
+    });
+    // Mail: context menu "letter" action → open compose with recipient
+    // (handled inline in context menu handler above)
+
     // Close modals
     document.querySelectorAll('.modal').forEach(m=>{m.addEventListener('click',e=>{if(e.target===m)m.style.display='none';});});
     document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal').forEach(m=>m.style.display='none');});
@@ -764,6 +944,47 @@
       messagesEl.addEventListener('scroll',()=>{scrollBtn.style.display=(messagesEl.scrollHeight-messagesEl.scrollTop-messagesEl.clientHeight>200)?'flex':'none';});
       scrollBtn.addEventListener('click',()=>{messagesEl.scrollTop=messagesEl.scrollHeight;scrollBtn.style.display='none';});
     }
+  }
+
+  // === CLIPBOARD & QR HELPERS ===
+  function copyToClipboard(contact) {
+    const id = window._identity;
+    if (!id) return;
+    const link = `iskra://${contact.pubkey || contact.user_id}`;
+    // Try modern API first, fallback to textarea trick
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(link).then(() => {
+        showToast(t('copied') || 'Скопировано');
+      }).catch(() => fallbackCopy(link));
+    } else {
+      fallbackCopy(link);
+    }
+  }
+
+  function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showToast(t('copied') || 'Скопировано'); } catch(e) { showToast('Copy failed'); }
+    document.body.removeChild(ta);
+  }
+
+  function showToast(msg) {
+    let toast = document.getElementById('toast');
+    if (!toast) { toast = document.createElement('div'); toast.id = 'toast'; toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#fff;padding:8px 20px;border-radius:20px;font-size:13px;z-index:999;transition:opacity 0.3s'; document.body.appendChild(toast); }
+    toast.textContent = msg; toast.style.opacity = '1';
+    setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+  }
+
+  function showContactQR(contact) {
+    // Reuse the QR modal but show contact's info
+    const link = `iskra://${contact.pubkey || contact.user_id}`;
+    document.getElementById('qr-link').textContent = link;
+    document.getElementById('qr-short-addr').textContent = contact.name || '';
+    document.getElementById('qr-code').innerHTML = `<div style="padding:20px;text-align:center;font-size:13px;color:var(--text2)">${esc(link)}</div>`;
+    document.getElementById('modal-qr').style.display = 'flex';
   }
 
   // === CONTEXT MENU ===

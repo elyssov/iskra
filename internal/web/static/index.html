@@ -152,18 +152,25 @@
   <!-- Панель почты -->
   <div id="panel-mail" class="panel">
     <div id="mail-toolbar">
-      <span class="section-label" data-i18n="label_inbox">Входящие</span>
-      <button id="btn-compose" class="compose-btn" data-i18n="btn_compose">✏️ Написать</button>
+      <span class="section-label">Почта</span>
+      <button id="btn-compose" class="compose-btn">✏️ Написать</button>
     </div>
-    <div id="mail-list"></div>
-    <div id="mail-sent-section" style="display:none">
-      <div class="section-label" data-i18n="label_sent">Отправленные</div>
+    <div class="mail-folder">
+      <div class="mail-folder-header" data-i18n="label_inbox">📥 Входящие</div>
+      <div id="mail-inbox-list"></div>
+    </div>
+    <div class="mail-folder">
+      <div class="mail-folder-header" data-i18n="label_sent">📤 Отправленные</div>
       <div id="mail-sent-list"></div>
+    </div>
+    <div class="mail-folder">
+      <div class="mail-folder-header" data-i18n="label_delivered">✅ Доставленные</div>
+      <div id="mail-delivered-list"></div>
     </div>
   </div>
 
   <!-- Просмотр чата -->
-  <div id="chat-view" style="display:none">
+  <div id="chat-view">
     <div id="chat-header">
       <button id="btn-back" class="back-btn">←</button>
       <div id="chat-contact-info">
@@ -187,7 +194,7 @@
   </div>
 
   <!-- Просмотр письма -->
-  <div id="letter-view" style="display:none">
+  <div id="letter-view">
     <div id="letter-header">
       <button id="btn-letter-back" class="back-btn">←</button>
       <span id="letter-title">Письмо</span>
@@ -204,21 +211,24 @@
   </div>
 
   <!-- Редактор письма -->
-  <div id="compose-view" style="display:none">
+  <div id="compose-view">
     <div id="compose-header">
       <button id="btn-compose-back" class="back-btn">←</button>
       <span data-i18n="compose_title">Новое письмо</span>
       <button id="btn-compose-send" class="send-btn">Отправить ▶</button>
     </div>
     <div id="compose-form">
-      <input type="text" id="compose-to" data-i18n-placeholder="compose_to" placeholder="Кому..." />
+      <div id="compose-to-wrapper">
+        <input type="text" id="compose-to" data-i18n-placeholder="compose_to" placeholder="Кому..." autocomplete="off" />
+        <div id="compose-contacts-dropdown"></div>
+      </div>
       <input type="text" id="compose-subject" data-i18n-placeholder="compose_subject" placeholder="Тема..." />
       <textarea id="compose-body" data-i18n-placeholder="compose_body" placeholder="Текст письма..."></textarea>
     </div>
   </div>
 
   <!-- Настройки -->
-  <div id="settings-view" style="display:none">
+  <div id="settings-view">
     <div id="settings-header">
       <button id="btn-settings-back" class="back-btn">←</button>
       <span data-i18n="settings_title">Настройки</span>
@@ -265,7 +275,7 @@
         <div class="section-label" data-i18n="settings_about">О программе</div>
         <div class="settings-item">
           <span>Искра</span>
-          <span class="settings-value">2.0 "Bastille"</span>
+          <span class="settings-value">2.0 Build 2 "Bastille"</span>
         </div>
         <div class="settings-item">
           <span>Relay</span>

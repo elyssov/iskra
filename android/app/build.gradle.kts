@@ -11,8 +11,8 @@ android {
         applicationId = "com.iskra.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 21
-        versionName = "0.6.1-alpha"
+        versionCode = 23
+        versionName = "2.0-alpha"
     }
 
     signingConfigs {
@@ -31,6 +31,12 @@ android {
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 
