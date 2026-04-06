@@ -181,6 +181,7 @@ class MainActivity : AppCompatActivity() {
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             settings.saveFormData = false
+            settings.defaultTextEncodingName = "UTF-8"
             // Disable autofill to prevent keyboard from learning mnemonic words
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 importantForAutofill = android.view.View.IMPORTANT_FOR_AUTOFILL_NO
