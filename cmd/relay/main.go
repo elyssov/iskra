@@ -16,9 +16,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Relay — минимальный WebSocket relay для Искры.
-// Не логирует. Не расшифровывает. Не хранит на диск.
-// Просто передаёт зашифрованные блобы между клиентами.
+// Relay — WebSocket relay для Искры (СВХ — склад временного хранения).
+// Не логирует. Не расшифровывает.
+// Хранит зашифрованные блобы на диск с TTL 48 часов.
+// Маяк стоит в порту. Корабли приходят — забирают груз.
 
 // Партийные клички — каждая сессия новая маска
 var aliases = []string{
@@ -56,10 +57,23 @@ type knownPeer struct {
 	IsClipper bool   `json:"isClipper"` // never sent a message
 }
 
+// holdEntry is a message waiting for its recipient in the relay hold (СВХ).
+type holdEntry struct {
+	Data      []byte `json:"data"`      // raw encrypted frame
+	Timestamp int64  `json:"timestamp"` // unix time when stored
+}
+
+const (
+	holdTTL       = 48 * time.Hour  // messages expire after 48h
+	holdMaxPerUID = 200             // max messages per recipient
+	holdMaxTotal  = 50000           // max total messages across all recipients
+	holdDir       = "relay-hold"    // directory for persistent storage
+)
+
 type relay struct {
 	clients    map[string]*clientInfo   // UserID → client info (online only)
 	aliases    map[string]string        // UserID → current alias
-	pending    map[string][][]byte      // UserID → queued messages
+	hold       map[string][]holdEntry   // UserID → queued messages (СВХ)
 	knownPeers map[string]*knownPeer   // UserID → ever-connected peer (TTL 30 days)
 	mu         sync.RWMutex
 }
@@ -77,13 +91,24 @@ func main() {
 	r := &relay{
 		clients:    make(map[string]*clientInfo),
 		aliases:    make(map[string]string),
-		pending:    make(map[string][][]byte),
+		hold:       make(map[string][]holdEntry),
 		knownPeers: make(map[string]*knownPeer),
 	}
 
-	// Cleanup expired known peers every hour
+	// Load persistent hold from disk
+	r.loadHold()
+	holdCount := 0
+	for _, msgs := range r.hold {
+		holdCount += len(msgs)
+	}
+	if holdCount > 0 {
+		fmt.Printf("   Трюм: %d сообщений загружено с диска\n", holdCount)
+	}
+
+	// Cleanup expired hold + known peers
 	go func() {
 		for range time.Tick(1 * time.Hour) {
+			r.cleanupHold()
 			r.cleanupKnownPeers()
 		}
 	}()
@@ -91,16 +116,18 @@ func main() {
 	http.HandleFunc("/ws", r.handleWS)
 	http.HandleFunc("/online", r.handleOnline)
 	http.HandleFunc("/directory", r.handleDirectory)
+	http.HandleFunc("/hold-stats", r.handleHoldStats)
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(w, "Iskra Relay v0.2\n")
+		fmt.Fprintf(w, "Iskra Relay v0.3 (СВХ)\n")
 	})
 
 	addr := fmt.Sprintf(":%d", *port)
-	fmt.Printf("🔥 Искра Relay\n")
+	fmt.Printf("🔥 Искра Relay (СВХ)\n")
 	fmt.Printf("   Порт: %d\n", *port)
 	fmt.Printf("   WebSocket: ws://0.0.0.0:%d/ws\n", *port)
-	fmt.Println("   Не логирует. Не расшифровывает. Просто передаёт.")
+	fmt.Printf("   Трюм: TTL %v, макс %d/получатель, %d всего\n", holdTTL, holdMaxPerUID, holdMaxTotal)
+	fmt.Println("   Не логирует. Не расшифровывает. Хранит и передаёт.")
 	fmt.Println()
 
 	if err := http.ListenAndServe(addr, nil); err != nil {
@@ -218,12 +245,17 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		kp.IsClipper = !oldCI.hasSent
 	}
 
-	pending := r.pending[userID]
-	delete(r.pending, userID)
+	// Deliver held messages (СВХ → корабль забирает груз)
+	held := r.hold[userID]
+	delete(r.hold, userID)
 	r.mu.Unlock()
 
-	for _, msg := range pending {
-		conn.WriteMessage(websocket.BinaryMessage, msg)
+	if len(held) > 0 {
+		log.Printf("[Hold] Delivering %d held messages to %s", len(held), userID[:8])
+		for _, entry := range held {
+			conn.WriteMessage(websocket.BinaryMessage, entry.Data)
+		}
+		r.saveHold() // persist removal
 	}
 
 	// Notify all existing peers: "new peer arrived — sync your holds!"
@@ -302,12 +334,16 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 				targetCI.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				targetCI.conn.WriteMessage(websocket.BinaryMessage, frame)
 			} else {
-				// Recipient offline — queue for when they connect + broadcast to peers' holds
+				// Recipient offline — store in hold (СВХ) + broadcast to peers' holds
 				r.mu.Lock()
-				if len(r.pending[recipID]) < 500 {
-					r.pending[recipID] = append(r.pending[recipID], frame)
+				if len(r.hold[recipID]) < holdMaxPerUID {
+					r.hold[recipID] = append(r.hold[recipID], holdEntry{
+						Data:      frame,
+						Timestamp: time.Now().Unix(),
+					})
 				}
 				r.mu.Unlock()
+				r.saveHold() // persist to disk
 				// Also broadcast to online peers as store-and-forward backup
 				r.broadcastExcept(userID, frame)
 			}
@@ -389,6 +425,103 @@ func (r *relay) cleanupKnownPeers() {
 		if kp.LastSeen < cutoff {
 			delete(r.knownPeers, uid)
 		}
+	}
+}
+
+// handleHoldStats returns hold statistics.
+func (r *relay) handleHoldStats(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	r.mu.RLock()
+	total := 0
+	recipients := len(r.hold)
+	oldest := int64(0)
+	for _, entries := range r.hold {
+		total += len(entries)
+		for _, e := range entries {
+			if oldest == 0 || e.Timestamp < oldest {
+				oldest = e.Timestamp
+			}
+		}
+	}
+	r.mu.RUnlock()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"messages":   total,
+		"recipients": recipients,
+		"oldest":     oldest,
+		"ttl_hours":  int(holdTTL.Hours()),
+	})
+}
+
+// === HOLD PERSISTENCE (СВХ) ===
+
+// loadHold reads the hold from disk on startup.
+func (r *relay) loadHold() {
+	path := holdDir + "/hold.json"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // no file — fresh start
+	}
+	var stored map[string][]holdEntry
+	if err := json.Unmarshal(data, &stored); err != nil {
+		log.Printf("[Hold] Failed to parse hold.json: %v", err)
+		return
+	}
+	// Filter expired entries on load
+	now := time.Now().Unix()
+	cutoff := now - int64(holdTTL.Seconds())
+	for uid, entries := range stored {
+		var valid []holdEntry
+		for _, e := range entries {
+			if e.Timestamp > cutoff {
+				valid = append(valid, e)
+			}
+		}
+		if len(valid) > 0 {
+			r.hold[uid] = valid
+		}
+	}
+}
+
+// saveHold persists the hold to disk.
+func (r *relay) saveHold() {
+	r.mu.RLock()
+	data, err := json.Marshal(r.hold)
+	r.mu.RUnlock()
+	if err != nil {
+		return
+	}
+	os.MkdirAll(holdDir, 0700)
+	os.WriteFile(holdDir+"/hold.json", data, 0600)
+}
+
+// cleanupHold removes messages older than TTL and enforces limits.
+func (r *relay) cleanupHold() {
+	r.mu.Lock()
+	now := time.Now().Unix()
+	cutoff := now - int64(holdTTL.Seconds())
+	total := 0
+	removed := 0
+	for uid, entries := range r.hold {
+		var valid []holdEntry
+		for _, e := range entries {
+			if e.Timestamp > cutoff {
+				valid = append(valid, e)
+			} else {
+				removed++
+			}
+		}
+		if len(valid) > 0 {
+			r.hold[uid] = valid
+			total += len(valid)
+		} else {
+			delete(r.hold, uid)
+		}
+	}
+	r.mu.Unlock()
+	if removed > 0 {
+		log.Printf("[Hold] Cleanup: removed %d expired, %d remaining", removed, total)
+		r.saveHold()
 	}
 }
 
