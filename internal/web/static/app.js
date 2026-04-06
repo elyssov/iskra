@@ -598,14 +598,20 @@
     const container = document.getElementById('messages');
     if(!msgs||msgs.length===0){container.innerHTML=`<div class="empty-state"><p>${t('msg_empty')}</p></div>`;return;}
     const isMasterChat = currentContact && isSpecialContact(currentContact.user_id);
-    container.innerHTML = msgs.map(m => {
+    container.innerHTML = msgs.map((m,idx) => {
       const cls = m.outgoing?'out':'in';
       const masterCls = (isMasterChat&&!m.outgoing)?' master-msg':'';
       const dt = formatDateTime(m.timestamp);
       let check = '';
       if(m.outgoing) check = m.status==='delivered'?'<span class="check">✓✓</span>':'<span class="check">✓</span>';
-      return `<div class="message ${cls}${masterCls}"><div class="msg-datetime">${dt}</div><div class="msg-text">${esc(m.text)}</div><div class="meta">${lockSVG}${check}</div></div>`;
+      let replyBlock='';
+      if(m.reply_to){const pt=m.reply_text?(m.reply_text.length>60?m.reply_text.substring(0,60)+'...':m.reply_text):'';replyBlock=`<div class="message-reply-quote"><div class="reply-quote-from">${esc(m.reply_from||'')}</div><div class="reply-quote-text">${esc(pt)}</div></div>`;}
+      return `<div class="message ${cls}${masterCls}" data-msg-idx="${idx}">${replyBlock}<div class="msg-datetime">${dt}</div><div class="msg-text">${esc(m.text)}</div><div class="meta">${lockSVG}${check}</div></div>`;
     }).join('');
+    // Reply on tap (incoming messages)
+    container.querySelectorAll('.message.in').forEach(el=>{
+      el.addEventListener('click',e=>{if(e.target.closest('.message-reply-quote'))return;const idx=parseInt(el.dataset.msgIdx);if(msgs[idx])setReplyingTo(msgs[idx]);});
+    });
     const near = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
     if(near) container.scrollTop = container.scrollHeight;
   }
@@ -658,7 +664,9 @@
     const input=document.getElementById('msg-input'), text=input.value.trim();
     if(!text) return;
     _sending=true; input.value=''; input.style.height='auto';
-    try{await fetch(`/api/messages/${currentContact.user_id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});loadMessages();}catch(e){}finally{_sending=false;}
+    const body={text};
+    if(replyingTo){body.replyTo=replyingTo.id;body.replyText=replyingTo.text.length>100?replyingTo.text.substring(0,100):replyingTo.text;body.replyFrom=replyingTo.outgoing?'Вы':(currentContact.name||'');replyingTo=null;const p=document.getElementById('reply-preview');if(p)p.style.display='none';}
+    try{await fetch(`/api/messages/${currentContact.user_id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});loadMessages();}catch(e){}finally{_sending=false;}
   }
 
   async function sendGroupMessage() {
@@ -933,6 +941,79 @@
     });
     // Mail: context menu "letter" action → open compose with recipient
     // (handled inline in context menu handler above)
+
+    // New chat button — open contact list to start chat
+    document.getElementById('btn-new-chat').addEventListener('click',()=>{
+      if(!contacts||contacts.length===0){showToast(t('no_contacts')||'Сначала добавьте контакт');switchTab('contacts');return;}
+      // Show quick picker
+      const items=contacts.map(c=>`${c.name} (${c.user_id.substring(0,8)})`);
+      const picked=prompt((t('pick_contact')||'Выберите контакт (введите имя):')+'\n'+items.join('\n'));
+      if(!picked) return;
+      const match=contacts.find(c=>c.name.toLowerCase()===picked.toLowerCase()||c.name.toLowerCase().startsWith(picked.toLowerCase()));
+      if(match){openChat(match);}else{showToast(t('contact_not_found')||'Контакт не найден');}
+    });
+
+    // Scan QR — on Android opens camera intent, on desktop shows paste dialog
+    document.getElementById('btn-scan-qr').addEventListener('click',()=>{
+      const link=prompt(t('scan_qr_prompt')||'Вставьте ссылку iskra:// из QR-кода:');
+      if(!link) return;
+      const parsed=parseInviteLink(link.trim());
+      if(parsed){
+        document.getElementById('add-invite').value=link.trim();
+        document.getElementById('add-pubkey').value=parsed.pubkey;
+        document.getElementById('add-x25519').value=parsed.x25519;
+        if(parsed.name) document.getElementById('add-name').value=parsed.name;
+        document.getElementById('modal-add').style.display='flex';
+        if(!parsed.name) document.getElementById('add-name').focus();
+      } else {
+        showToast(t('invalid_link')||'Неверная ссылка iskra://');
+      }
+    });
+
+    // Show mnemonic (24 words)
+    document.getElementById('btn-show-mnemonic').addEventListener('click',()=>{
+      const id=window._identity;
+      if(!id||!id.mnemonic){showToast('Мнемоника недоступна');return;}
+      const words=id.mnemonic.map((w,i)=>`${i+1}. ${w}`).join('\n');
+      alert((t('mnemonic_title')||'Ваши 24 слова (ХРАНИТЕ В ТАЙНЕ!):')+'\n\n'+words);
+      document.getElementById('settings-view').classList.remove('open');
+    });
+
+    // Search contacts
+    document.getElementById('search-input').addEventListener('input',function(){
+      const q=this.value.toLowerCase().trim();
+      document.querySelectorAll('#contacts-list .contact-item').forEach(el=>{
+        const name=(el.querySelector('.contact-name')||{}).textContent||'';
+        el.style.display=(!q||name.toLowerCase().includes(q))?'':'none';
+      });
+    });
+
+    // Display name — save on blur/enter
+    const displayNameInput=document.getElementById('settings-display-name');
+    if(displayNameInput){
+      // Load current name
+      if(window._identity&&window._identity.displayName) displayNameInput.value=window._identity.displayName;
+      const saveName=()=>{
+        const name=displayNameInput.value.trim();
+        if(name) fetch('/api/identity/name',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})}).catch(()=>{});
+      };
+      displayNameInput.addEventListener('blur',saveName);
+      displayNameInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveName();displayNameInput.blur();}});
+    }
+
+    // Help modal content
+    document.getElementById('help-content').innerHTML=`
+      <div class="modal-header"><h3>${t('help_title')||'Помощь'}</h3><button class="modal-close" onclick="closeModal('modal-help')">&times;</button></div>
+      <div style="padding:16px;font-size:14px;line-height:1.6">
+        <p><b>Искра</b> — зашифрованный P2P мессенджер без серверов.</p>
+        <p><b>Добавить контакт:</b> получите ссылку <code>iskra://...</code> от собеседника и вставьте в поле "Добавить".</p>
+        <p><b>Отправить сообщение:</b> нажмите на контакт → "Сообщение" в меню.</p>
+        <p><b>Написать письмо:</b> вкладка Почта → кнопка "✏️ Написать".</p>
+        <p><b>Безопасность:</b> все сообщения зашифрованы E2E (XSalsa20-Poly1305). PIN защищает данные. 5 неверных попыток = уничтожение.</p>
+        <p><b>Panic mode:</b> зажмите "🔥 Искра" на 3 секунды → введите код → все данные уничтожены.</p>
+        <p><b>24 слова:</b> запишите на бумаге! Это единственный способ восстановить аккаунт.</p>
+        <p style="margin-top:12px;color:var(--text3)">Build 3 "Concorde" · <a href="https://github.com/elyssov/iskra" style="color:var(--accent)">GitHub</a></p>
+      </div>`;
 
     // Close modals
     document.querySelectorAll('.modal').forEach(m=>{m.addEventListener('click',e=>{if(e.target===m)m.style.display='none';});});

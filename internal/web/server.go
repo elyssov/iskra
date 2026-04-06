@@ -35,6 +35,7 @@ func (s *Server) Start() error {
 
 	// API routes
 	mux.HandleFunc("/api/identity", s.api.HandleIdentity)
+	mux.HandleFunc("/api/identity/name", s.api.HandleSetName)
 	mux.HandleFunc("/api/contacts", s.api.HandleContacts)
 	mux.HandleFunc("/api/messages/", s.api.HandleMessages)
 	mux.HandleFunc("/api/status", s.api.HandleStatus)
