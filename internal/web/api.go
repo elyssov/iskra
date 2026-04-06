@@ -24,7 +24,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "2" // Iskra 2.0 Build 2 "Bastille"
+const BuildNumber = "3" // Iskra 2.0 Build 3 "Concorde"
 
 // API handles REST API requests.
 type API struct {
@@ -48,6 +48,7 @@ type API struct {
 	Locked       bool     // true if PIN required and not yet verified
 	VaultKey     *[32]byte
 	UnlockCh     chan struct{} // closed when PIN verified / setup complete
+	DisplayName  string // user-set display name
 }
 
 // InboxFilePath returns the per-identity inbox file path.
@@ -59,10 +60,11 @@ func (a *API) InboxFilePath() string {
 }
 
 type identityResponse struct {
-	UserID   string   `json:"userID"`
-	PubKey   string   `json:"pubkey"`
-	X25519   string   `json:"x25519_pub"`
-	Mnemonic []string `json:"mnemonic"`
+	UserID      string   `json:"userID"`
+	PubKey      string   `json:"pubkey"`
+	X25519      string   `json:"x25519_pub"`
+	Mnemonic    []string `json:"mnemonic"`
+	DisplayName string   `json:"displayName,omitempty"`
 }
 
 type contactRequest struct {
@@ -93,13 +95,40 @@ func (a *API) HandleIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load display name from file if not set
+	if a.DisplayName == "" && a.DataDir != "" {
+		if data, err := os.ReadFile(filepath.Join(a.DataDir, "displayname.txt")); err == nil {
+			a.DisplayName = strings.TrimSpace(string(data))
+		}
+	}
 	resp := identityResponse{
-		UserID:   identity.UserID(a.Keypair.Ed25519Pub),
-		PubKey:   identity.ToBase58(a.Keypair.Ed25519Pub[:]),
-		X25519:   identity.ToBase58(a.Keypair.X25519Pub[:]),
-		Mnemonic: a.Mnemonic,
+		UserID:      identity.UserID(a.Keypair.Ed25519Pub),
+		PubKey:      identity.ToBase58(a.Keypair.Ed25519Pub[:]),
+		X25519:      identity.ToBase58(a.Keypair.X25519Pub[:]),
+		Mnemonic:    a.Mnemonic,
+		DisplayName: a.DisplayName,
 	}
 	writeJSON(w, resp)
+}
+
+// HandleSetName sets the user's display name.
+func (a *API) HandleSetName(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	a.DisplayName = strings.TrimSpace(req.Name)
+	if a.DataDir != "" {
+		os.WriteFile(filepath.Join(a.DataDir, "displayname.txt"), []byte(a.DisplayName), 0600)
+	}
+	writeJSON(w, map[string]string{"ok": "true", "name": a.DisplayName})
 }
 
 // HandleContacts handles GET (list) and POST (add) for contacts.
