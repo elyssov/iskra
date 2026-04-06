@@ -24,7 +24,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "3" // Iskra 2.0 Build 3 "Concorde"
+const BuildNumber = "6" // Iskra 2.0 Build 6 "Cutty Sark"
 
 // API handles REST API requests.
 type API struct {
@@ -1944,7 +1944,6 @@ func (a *API) HandleUnsubscribeChannel(w http.ResponseWriter, r *http.Request) {
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(v)
 }
 
