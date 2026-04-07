@@ -70,12 +70,23 @@ const (
 	holdDir       = "relay-hold"    // directory for persistent storage
 )
 
+type relayStats struct {
+	msgRelayed    int64  // messages forwarded this hour
+	bytesRelayed  int64  // bytes forwarded this hour
+	connections   int64  // new connections this hour
+	filesBlocked  int64  // file chunks dropped this hour
+	holdStored    int64  // messages stored in hold this hour
+	holdDelivered int64  // messages delivered from hold this hour
+}
+
 type relay struct {
-	clients    map[string]*clientInfo   // UserID → client info (online only)
-	aliases    map[string]string        // UserID → current alias
-	hold       map[string][]holdEntry   // UserID → queued messages (СВХ)
-	knownPeers map[string]*knownPeer   // UserID → ever-connected peer (TTL 30 days)
-	mu         sync.RWMutex
+	clients      map[string]*clientInfo   // UserID → client info (online only)
+	aliases      map[string]string        // UserID → current alias
+	hold         map[string][]holdEntry   // UserID → queued messages (СВХ)
+	knownPeers   map[string]*knownPeer   // UserID → ever-connected peer (TTL 30 days)
+	lastSync     map[string]time.Time     // UserID → last NEWSYNC time (cooldown)
+	stats        relayStats               // hourly stats
+	mu           sync.RWMutex
 }
 
 func main() {
@@ -93,6 +104,7 @@ func main() {
 		aliases:    make(map[string]string),
 		hold:       make(map[string][]holdEntry),
 		knownPeers: make(map[string]*knownPeer),
+		lastSync:   make(map[string]time.Time),
 	}
 
 	// Load persistent hold from disk
@@ -105,11 +117,12 @@ func main() {
 		fmt.Printf("   Трюм: %d сообщений загружено с диска\n", holdCount)
 	}
 
-	// Cleanup expired hold + known peers
+	// Cleanup + hourly stats log
 	go func() {
 		for range time.Tick(1 * time.Hour) {
 			r.cleanupHold()
 			r.cleanupKnownPeers()
+			r.logHourlyStats()
 		}
 	}()
 
@@ -255,14 +268,27 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 		for _, entry := range held {
 			conn.WriteMessage(websocket.BinaryMessage, entry.Data)
 		}
-		r.saveHold() // persist removal
+		r.mu.Lock()
+		r.stats.holdDelivered += int64(len(held))
+		r.mu.Unlock()
+		r.saveHold()
 	}
 
-	// Notify all existing peers: "new peer arrived — sync your holds!"
-	syncNotify := make([]byte, 20+7)
-	copy(syncNotify[:20], edPub[:20])
-	copy(syncNotify[20:], []byte("NEWSYNC"))
-	r.broadcastExcept(userID, syncNotify)
+	// Notify peers — but with cooldown (max once per 5 min per client)
+	r.mu.Lock()
+	lastSyncTime := r.lastSync[userID]
+	shouldSync := time.Since(lastSyncTime) > 5*time.Minute
+	if shouldSync {
+		r.lastSync[userID] = time.Now()
+	}
+	r.stats.connections++
+	r.mu.Unlock()
+	if shouldSync {
+		syncNotify := make([]byte, 20+7)
+		copy(syncNotify[:20], edPub[:20])
+		copy(syncNotify[20:], []byte("NEWSYNC"))
+		r.broadcastExcept(userID, syncNotify)
+	}
 
 	// Server-side ping — detect dead connections proactively
 	pingDone := make(chan struct{})
@@ -296,6 +322,21 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 
 		recipID := fmt.Sprintf("%x", data[:20])
 		msgData := data[20:]
+
+		// Block file chunks through relay — too expensive for bandwidth
+		// ContentType is at offset 65 in serialized message (version:1 + id:32 + recipientID:20 + ttl:4 + timestamp:8 = 65)
+		if len(msgData) > 65 && msgData[65] == 6 { // 6 = ContentFileChunk
+			r.mu.Lock()
+			r.stats.filesBlocked++
+			r.mu.Unlock()
+			continue // silently drop — files only via LAN/direct
+		}
+
+		// Track traffic stats
+		r.mu.Lock()
+		r.stats.msgRelayed++
+		r.stats.bytesRelayed += int64(len(data))
+		r.mu.Unlock()
 
 		// Mark as active sender (not a clipper)
 		r.mu.Lock()
@@ -341,6 +382,7 @@ func (r *relay) handleWS(w http.ResponseWriter, req *http.Request) {
 						Data:      frame,
 						Timestamp: time.Now().Unix(),
 					})
+					r.stats.holdStored++
 				}
 				r.mu.Unlock()
 				r.saveHold() // persist to disk
@@ -426,6 +468,34 @@ func (r *relay) cleanupKnownPeers() {
 			delete(r.knownPeers, uid)
 		}
 	}
+}
+
+// logHourlyStats logs and resets hourly statistics.
+func (r *relay) logHourlyStats() {
+	r.mu.Lock()
+	s := r.stats
+	r.stats = relayStats{} // reset
+	online := len(r.clients)
+	holdMsgs := 0
+	for _, entries := range r.hold {
+		holdMsgs += len(entries)
+	}
+	r.mu.Unlock()
+
+	log.Printf("[Stats] Hour: connections=%d msgs=%d bytes=%s files_blocked=%d hold_stored=%d hold_delivered=%d online=%d hold=%d",
+		s.connections, s.msgRelayed, formatBytes(s.bytesRelayed), s.filesBlocked,
+		s.holdStored, s.holdDelivered, online, holdMsgs)
+}
+
+func formatBytes(b int64) string {
+	if b < 1024 {
+		return fmt.Sprintf("%dB", b)
+	} else if b < 1024*1024 {
+		return fmt.Sprintf("%.1fKB", float64(b)/1024)
+	} else if b < 1024*1024*1024 {
+		return fmt.Sprintf("%.1fMB", float64(b)/(1024*1024))
+	}
+	return fmt.Sprintf("%.2fGB", float64(b)/(1024*1024*1024))
 }
 
 // handleHoldStats returns hold statistics.

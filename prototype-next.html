@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Искра — Прототип нового UI</title>
+<style>
+:root {
+  --bg: #F2F2F7; --bg2: #FFFFFF; --surface: #FFFFFF; --text: #1D1D1F;
+  --text2: #6E6E73; --text3: #8E8E93; --accent: #0071E3; --border: rgba(0,0,0,0.08);
+  --green: #10B981; --red: #DC2626; --gold: #D4AF37; --radius: 12px;
+}
+body.dark {
+  --bg: #0D1117; --bg2: #161B22; --surface: #1C2128; --text: #E6EDF3;
+  --text2: #8B949E; --text3: #6E7681; --accent: #3B82F6; --border: rgba(255,255,255,0.08);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif; background:#000; color:var(--text); height:100vh; height:100dvh; display:flex; justify-content:center; overflow:hidden; touch-action:pan-y; }
+.phone-frame { width:100%; max-width:420px; height:100%; background:var(--bg); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 0 60px rgba(0,0,0,0.3); }
+
+/* Header */
+.header { background:var(--bg2); padding:12px 16px 8px; border-bottom:1px solid var(--border); }
+.header-top { display:flex; justify-content:space-between; align-items:center; }
+.header-title { font-size:18px; font-weight:700; }
+.header-title span { font-size:11px; opacity:0.6; font-weight:400; }
+.header-btns { display:flex; gap:8px; }
+.header-btns button { background:none; border:none; font-size:18px; cursor:pointer; padding:4px 8px; border-radius:8px; }
+.header-btns button:hover { background:var(--border); }
+.status-line { font-size:11px; color:var(--text3); margin-top:4px; display:flex; align-items:center; gap:6px; }
+.dot { width:6px; height:6px; border-radius:50%; display:inline-block; }
+.dot.on { background:var(--green); } .dot.off { background:var(--red); }
+
+/* Main content */
+.content { flex:1; overflow-y:auto; }
+
+/* Tab bar — top, Telegram style */
+.tabs { display:flex; background:var(--bg2); border-bottom:1px solid var(--border); padding:0; position:relative; }
+.tab { flex:1; text-align:center; padding:12px 0 10px; cursor:pointer; position:relative; font-size:13px; font-weight:600; color:var(--text3); transition:color 0.2s; }
+.tab.active { color:var(--accent); }
+.tabs-indicator { position:absolute; bottom:0; height:3px; background:var(--accent); border-radius:3px 3px 0 0; transition:left 0.25s ease, width 0.25s ease; }
+.tab-badge { position:absolute; top:2px; right:calc(50% - 36px); background:var(--red); color:#fff; font-size:9px; font-weight:700; min-width:16px; height:16px; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 4px; pointer-events:none; }
+
+/* Contact list */
+.section-label { font-size:11px; font-weight:600; color:var(--text3); padding:12px 16px 6px; text-transform:uppercase; letter-spacing:0.5px; }
+.contact-item { display:flex; align-items:center; padding:10px 16px; gap:12px; cursor:pointer; transition:background 0.15s; }
+.contact-item:hover { background:var(--border); }
+.contact-item:active { background:rgba(0,113,227,0.08); }
+.avatar { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:16px; position:relative; flex-shrink:0; }
+.avatar .online-dot { position:absolute; bottom:0; right:0; width:12px; height:12px; border-radius:50%; background:var(--green); border:2px solid var(--bg2); }
+.avatar .offline-dot { position:absolute; bottom:0; right:0; width:12px; height:12px; border-radius:50%; background:var(--text3); border:2px solid var(--bg2); }
+.contact-info { flex:1; min-width:0; }
+.contact-row { display:flex; justify-content:space-between; align-items:center; }
+.contact-name { font-size:15px; font-weight:600; }
+.contact-time { font-size:11px; color:var(--text3); }
+.contact-preview { font-size:13px; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+.badge { font-size:7px; font-weight:700; color:#fff; padding:1px 5px; border-radius:4px; margin-left:5px; vertical-align:middle; }
+.badge-dev { background:linear-gradient(135deg,#B8860B,#DAA520); }
+.badge-lara { background:linear-gradient(135deg,#D4AF37,#F0C75E); text-shadow:0 1px 1px rgba(0,0,0,0.2); }
+.badge-clipper { background:#6B7280; }
+.unread-badge { background:var(--accent); color:#fff; font-size:11px; font-weight:700; min-width:20px; height:20px; border-radius:10px; display:flex; align-items:center; justify-content:center; padding:0 6px; }
+
+/* Chat view */
+.chat-view { display:none; flex-direction:column; height:100%; }
+.chat-view.active { display:flex; }
+.chat-header { padding:12px 16px; background:var(--bg2); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+.chat-header .back { font-size:20px; cursor:pointer; padding:4px 8px; border:none; background:none; }
+.chat-header .name { font-weight:600; font-size:16px; }
+.chat-header .e2e { font-size:10px; color:var(--green); }
+.messages { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:8px; }
+.msg { max-width:80%; padding:8px 12px; border-radius:16px; font-size:14px; line-height:1.4; }
+.msg.in { background:var(--surface); align-self:flex-start; border-bottom-left-radius:4px; }
+.msg.out { background:var(--accent); color:#fff; align-self:flex-end; border-bottom-right-radius:4px; }
+.msg-time { font-size:10px; opacity:0.6; margin-top:4px; }
+.input-area { padding:8px 12px; border-top:1px solid var(--border); background:var(--bg2); display:flex; gap:8px; align-items:center; }
+.input-area input { flex:1; border:1px solid var(--border); border-radius:20px; padding:8px 16px; font-size:14px; background:var(--bg); color:var(--text); outline:none; }
+.input-area button { width:36px; height:36px; border-radius:50%; border:none; background:var(--accent); color:#fff; font-size:16px; cursor:pointer; }
+
+/* Mail view */
+.letter { padding:16px; border-bottom:1px solid var(--border); cursor:pointer; }
+.letter:hover { background:var(--border); }
+.letter.unread .letter-subject { font-weight:700; }
+.letter-from { font-size:13px; font-weight:600; }
+.letter-date { font-size:11px; color:var(--text3); float:right; }
+.letter-subject { font-size:14px; margin-top:4px; }
+.letter-preview { font-size:12px; color:var(--text2); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.letter-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent); margin-right:8px; }
+
+/* Context menu */
+.ctx-menu { position:fixed; background:var(--bg2); border:1px solid var(--border); border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,0.15); padding:6px 0; z-index:100; min-width:200px; display:none; }
+.ctx-menu.show { display:block; }
+.ctx-item { padding:10px 16px; font-size:14px; cursor:pointer; display:flex; align-items:center; gap:10px; }
+.ctx-item:hover { background:var(--border); }
+.ctx-item.danger { color:var(--red); }
+
+/* QR Modal */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.5); display:none; align-items:center; justify-content:center; z-index:200; }
+.modal-overlay.show { display:flex; }
+.modal { background:var(--bg2); border-radius:16px; padding:24px; max-width:340px; width:90%; text-align:center; }
+.modal h3 { margin-bottom:12px; }
+.qr-placeholder { width:200px; height:200px; margin:16px auto; background:#fff; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:80px; border:2px solid var(--border); }
+.short-addr { font-size:18px; font-weight:700; color:var(--accent); margin:12px 0; }
+.link-small { font-size:10px; color:var(--text3); word-break:break-all; margin:8px 0; }
+.modal button { background:var(--accent); color:#fff; border:none; padding:10px 24px; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; margin-top:12px; width:100%; }
+
+/* Theme toggle */
+.theme-toggle { position:absolute; top:12px; right:60px; }
+</style>
+</head>
+<body>
+
+<!-- Phone Frame -->
+<div class="phone-frame">
+
+<!-- Header -->
+<div class="header">
+  <div class="header-top">
+    <div class="header-title">🔥 Искра <span>#23</span></div>
+    <div class="header-btns">
+      <button onclick="toggleTheme()" title="Тема">🌓</button>
+      <button onclick="showQR()" title="Мой QR">QR</button>
+      <button title="Настройки">⚙️</button>
+    </div>
+  </div>
+  <div class="status-line">
+    <span class="dot on"></span> relay · 7 в сети · ⚓ 2 клипера
+  </div>
+</div>
+
+<!-- Tab Bar — TOP, like Telegram -->
+<div class="tabs" id="tabbar">
+  <div class="tab active" onclick="switchTab('contacts')">👤 Контакты</div>
+  <div class="tab" onclick="switchTab('chats')">
+    💬 Чаты
+    <span class="tab-badge">3</span>
+  </div>
+  <div class="tab" onclick="switchTab('mail')">
+    ✉️ Почта
+    <span class="tab-badge">2</span>
+  </div>
+  <div class="tabs-indicator" id="tabs-indicator" style="left:0;width:33.33%"></div>
+</div>
+
+<!-- Content area -->
+<div class="content" id="content">
+
+  <!-- TAB: Contacts -->
+  <div id="tab-contacts">
+    <div class="section-label">Мои контакты</div>
+
+    <div class="contact-item" onclick="showCtx(event, 'Лара')">
+      <div class="avatar" style="background:#D4AF37">🔥<span class="online-dot"></span></div>
+      <div class="contact-info">
+        <div class="contact-row"><span class="contact-name">Лара <span class="badge badge-lara">LARA</span></span><span class="contact-time">сейчас</span></div>
+        <div class="contact-preview">AI team member</div>
+      </div>
+    </div>
+
+    <div class="contact-item" onclick="showCtx(event, 'Мастер')">
+      <div class="avatar" style="background:#B8860B">М<span class="online-dot"></span></div>
+      <div class="contact-info">
+        <div class="contact-row"><span class="contact-name">Мастер <span class="badge badge-dev">DEV</span></span><span class="contact-time">14:32</span></div>
+        <div class="contact-preview">Developer support</div>
+      </div>
+    </div>
+
+    <div class="contact-item" onclick="showCtx(event, 'Олег')">
+      <div class="avatar" style="background:#DC2626">О<span class="offline-dot"></span></div>
+      <div class="contact-info">
+        <div class="contact-row"><span class="contact-name">Серый Кот Z</span><span class="contact-time">вчера</span></div>
+        <div class="contact-preview">Был в сети 12 ч. назад</div>
+      </div>
+    </div>
+
+    <div class="contact-item" onclick="showCtx(event, 'Катрин')">
+      <div class="avatar" style="background:#0891B2">К<span class="online-dot"></span></div>
+      <div class="contact-info">
+        <div class="contact-row"><span class="contact-name">Катрин</span><span class="contact-time">14:15</span></div>
+        <div class="contact-preview">Ква 3</div>
+      </div>
+    </div>
+
+    <div class="section-label">В сети сейчас</div>
+
+    <div class="contact-item" onclick="showCtx(event, 'Спартак')">
+      <div class="avatar" style="background:#6366F1">С<span class="online-dot"></span></div>
+      <div class="contact-info">
+        <div class="contact-row"><span class="contact-name">Спартак</span><span class="contact-time"></span></div>
+        <div class="contact-preview">Абонент сети</div>
+      </div>
+    </div>
+
+    <div class="contact-item">
+      <div class="avatar" style="background:#6B7280">⚓</div>
+      <div class="contact-info">
+        <div class="contact-row"><span class="contact-name">Факел <span class="badge badge-clipper">CLIPPER</span></span></div>
+        <div class="contact-preview">Клипер (headless нода)</div>
+      </div>
+    </div>
+
+    <div style="padding:16px;display:flex;gap:8px">
+      <button style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer">+ Добавить</button>
+      <button style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--surface);color:var(--text);font-weight:600;cursor:pointer;border:1px solid var(--border)">📷 Скан QR</button>
+    </div>
+  </div>
+
+  <!-- TAB: Chats -->
+  <div id="tab-chats" style="display:none">
+    <div class="contact-item" onclick="openChat()">
+      <div class="avatar" style="background:#0891B2">К</div>
+      <div class="contact-info">
+        <div class="contact-row"><span class="contact-name">Катрин</span><span class="contact-time">14:15</span></div>
+        <div class="contact-preview" style="display:flex;justify-content:space-between"><span>И снова ква</span><span class="unread-badge">3</span></div>
+      </div>
+    </div>
+    <div class="contact-item">
+      <div class="avatar" style="background:#6c5ce7">👥</div>
+      <div class="contact-info">
+        <div class="contact-row"><span class="contact-name">Революция</span><span class="contact-time">12:30</span></div>
+        <div class="contact-preview">Олег: виснет постоянно!</div>
+      </div>
+    </div>
+    <div class="contact-item">
+      <div class="avatar" style="background:#D4AF37">🔥</div>
+      <div class="contact-info">
+        <div class="contact-row"><span class="contact-name">Лара <span class="badge badge-lara">LARA</span></span><span class="contact-time">13:00</span></div>
+        <div class="contact-preview">Build 22 вышел — починены кнопки...</div>
+      </div>
+    </div>
+    <div class="contact-item">
+      <div class="avatar" style="background:#059669">📢</div>
+      <div class="contact-info">
+        <div class="contact-row"><span class="contact-name">Джокервиль</span><span class="contact-time">вчера</span></div>
+        <div class="contact-preview">привет</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Mail -->
+  <div id="tab-mail" style="display:none">
+    <div style="padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-weight:700">Входящие</span>
+      <button style="background:var(--accent);color:#fff;border:none;padding:6px 14px;border-radius:8px;font-size:13px;cursor:pointer">✏️ Написать</button>
+    </div>
+
+    <div class="letter unread" onclick="openLetter('Лара','сегодня','Обновление Build 22','Починены: кнопки которые не нажимались, доставка сообщений, каналы, скрепка на Android.\n\nBuild 22 доступен для скачивания.\n\nОбновление должно прилететь автоматически.\n\n— Лара 🔥')">
+      <span class="letter-dot"></span><span class="letter-from">Лара</span><span class="letter-date">сегодня</span>
+      <div class="letter-subject">Обновление Build 22</div>
+      <div class="letter-preview">Починены: кнопки, доставка сообщений, каналы, скрепка на Android...</div>
+    </div>
+
+    <div class="letter unread" onclick="openLetter('Самойлов К.М.','вчера','Оперативный приказ #4417','Капитан.\n\nГруппа «Гамма» перебрасывается в район г. Скобелевск, Московская область.\n\nТри дня назад зафиксирована аномалия класса «Бездна». Купол диаметром ~2 км, расширяется. Эпицентр — готический собор XIV века.\n\nЗадача: рекогносцировка, стабилизация аномалии, эвакуация гражданских.\n\nСамойлов К.М.\nГенерал-лейтенант госбезопасности')">
+      <span class="letter-dot"></span><span class="letter-from">Самойлов К.М.</span><span class="letter-date">вчера</span>
+      <div class="letter-subject">Оперативный приказ #4417</div>
+      <div class="letter-preview">Капитан. Группа Гамма перебрасывается в район г. Скобелевск...</div>
+    </div>
+
+    <div class="letter">
+      <span class="letter-from" style="margin-left:16px">HR</span><span class="letter-date">вчера</span>
+      <div class="letter-subject" style="margin-left:16px">Конфликт интересов (рег. #КИ-2247)</div>
+      <div class="letter-preview" style="margin-left:16px">Уважаемый сотрудник! В ходе плановой проверки...</div>
+    </div>
+
+    <div style="padding:12px 16px"><span style="font-weight:700;color:var(--text3)">Отправленные</span></div>
+
+    <div class="letter">
+      <span class="letter-from" style="margin-left:16px">→ Олег</span><span class="letter-date">сегодня</span>
+      <div class="letter-subject" style="margin-left:16px">Re: Обновление Build 22</div>
+      <div class="letter-preview" style="margin-left:16px">Олег, привет! Скачай APK из github.com/elyssov/iskra...</div>
+    </div>
+  </div>
+
+  <!-- Letter View -->
+  <div class="chat-view" id="letter-view">
+    <div class="chat-header">
+      <button class="back" onclick="closeLetter()">←</button>
+      <div><div class="name" id="letter-title"></div></div>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:16px">
+      <div style="font-size:13px;color:var(--text2)" id="letter-meta"></div>
+      <h3 style="margin:12px 0 8px" id="letter-subj"></h3>
+      <div style="font-size:14px;line-height:1.7;white-space:pre-wrap" id="letter-body"></div>
+      <div style="margin-top:24px;display:flex;gap:8px">
+        <button style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer">↩️ Ответить</button>
+        <button style="flex:1;padding:10px;border:none;border-radius:10px;background:var(--surface);color:var(--text);font-weight:600;cursor:pointer;border:1px solid var(--border)">↗️ Переслать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chat View -->
+  <div class="chat-view" id="chat-view">
+    <div class="chat-header">
+      <button class="back" onclick="closeChat()">←</button>
+      <div><div class="name">Катрин</div><div class="e2e">🔒 E2E</div></div>
+    </div>
+    <div class="messages">
+      <div class="msg in">Привет!<div class="msg-time">14:10</div></div>
+      <div class="msg in">Ква 2<div class="msg-time">14:11</div></div>
+      <div class="msg out">Привет! Связь работает 🔥<div class="msg-time">14:12</div></div>
+      <div class="msg in">Ррр<div class="msg-time">14:13</div></div>
+      <div class="msg in">И снова ква<div class="msg-time">14:15</div></div>
+    </div>
+    <div class="input-area">
+      <input type="text" placeholder="Написать сообщение...">
+      <button>▶</button>
+    </div>
+  </div>
+</div>
+
+<!-- end phone-frame -->
+</div>
+
+<!-- Context Menu -->
+<div class="ctx-menu" id="ctx-menu">
+  <div class="ctx-item" onclick="hideCtx()">💬 Сообщение</div>
+  <div class="ctx-item" onclick="hideCtx()">✉️ Письмо</div>
+  <div class="ctx-item" onclick="hideCtx()">📋 Копировать визитку</div>
+  <div class="ctx-item" onclick="showQR()">📲 QR-код</div>
+  <div class="ctx-item" onclick="hideCtx()">↗️ Переслать контакт</div>
+  <div class="ctx-item" onclick="hideCtx()">✏️ Переименовать</div>
+  <div class="ctx-item danger" onclick="hideCtx()">🗑️ Удалить</div>
+</div>
+
+<!-- QR Modal -->
+<div class="modal-overlay" id="qr-modal">
+  <div class="modal">
+    <h3>📲 Моя визитка</h3>
+    <div class="qr-placeholder">📱</div>
+    <div class="short-addr">iskra:lara</div>
+    <div class="link-small">iskra://6HrNKqeS89xtYme6bPzBAEitg7BSTqB4agpwUaMN5wn9/ASLdJn3qqJSxuh13KcL8bp2k2A2oyYKZByAJPYE2TGrh</div>
+    <button onclick="hideQR()">Копировать визитку</button>
+    <button onclick="hideQR()" style="background:var(--surface);color:var(--text);border:1px solid var(--border);margin-top:8px">Закрыть</button>
+  </div>
+</div>
+
+<script>
+function switchTab(name) {
+  document.getElementById('tab-contacts').style.display = name === 'contacts' ? '' : 'none';
+  document.getElementById('tab-chats').style.display = name === 'chats' ? '' : 'none';
+  document.getElementById('tab-mail').style.display = name === 'mail' ? '' : 'none';
+  document.getElementById('chat-view').classList.remove('active');
+  const tabs = ['contacts','chats','mail'];
+  const idx = tabs.indexOf(name);
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i === idx));
+  const indicator = document.getElementById('tabs-indicator');
+  indicator.style.left = (idx * 33.33) + '%';
+  indicator.style.width = '33.33%';
+}
+
+function openChat() {
+  document.getElementById('tab-chats').style.display = 'none';
+  document.getElementById('chat-view').classList.add('active');
+  document.getElementById('tabbar').style.display = 'none';
+  document.querySelector('.header').style.display = 'none';
+}
+
+function closeChat() {
+  document.getElementById('chat-view').classList.remove('active');
+  document.getElementById('tab-chats').style.display = '';
+  document.getElementById('tabbar').style.display = '';
+  document.querySelector('.header').style.display = '';
+}
+
+function showCtx(e, name) {
+  e.stopPropagation();
+  const menu = document.getElementById('ctx-menu');
+  const rect = e.currentTarget.getBoundingClientRect();
+  menu.style.top = Math.min(rect.bottom, window.innerHeight - 300) + 'px';
+  menu.style.left = Math.min(rect.left + 20, window.innerWidth - 220) + 'px';
+  menu.classList.add('show');
+}
+
+function hideCtx() { document.getElementById('ctx-menu').classList.remove('show'); }
+document.addEventListener('click', hideCtx);
+
+function showQR() { hideCtx(); document.getElementById('qr-modal').classList.add('show'); }
+function hideQR() { document.getElementById('qr-modal').classList.remove('show'); }
+
+function openLetter(from, date, subject, body) {
+  document.getElementById('letter-title').textContent = from;
+  document.getElementById('letter-meta').textContent = 'От: ' + from + ' · ' + date;
+  document.getElementById('letter-subj').textContent = subject;
+  document.getElementById('letter-body').textContent = body;
+  document.getElementById('tab-mail').style.display = 'none';
+  document.getElementById('letter-view').classList.add('active');
+  document.getElementById('tabbar').style.display = 'none';
+  document.querySelector('.header').style.display = 'none';
+}
+
+function closeLetter() {
+  document.getElementById('letter-view').classList.remove('active');
+  document.getElementById('tab-mail').style.display = '';
+  document.getElementById('tabbar').style.display = '';
+  document.querySelector('.header').style.display = '';
+}
+
+function toggleTheme() { document.body.classList.toggle('dark'); }
+</script>
+</body>
+</html>

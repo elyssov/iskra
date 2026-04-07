@@ -41,8 +41,8 @@ func NewContacts(path string) (*Contacts, error) {
 	return c, nil
 }
 
-// SetVaultKey migrates encrypted contacts to plain JSON.
-// Contacts are public data (names + pubkeys) — no need to encrypt.
+// SetVaultKey sets the encryption key for contacts storage.
+// Contacts contain names + pubkeys. Encrypted at rest when VaultKey is set.
 func (c *Contacts) SetVaultKey(key *[32]byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
