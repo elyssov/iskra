@@ -24,7 +24,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "7" // Iskra 2.0 Build 7 "Aurora"
+const BuildNumber = "7" // Iskra 2.0 Build 7 "Endeavour"
 
 // API handles REST API requests.
 type API struct {
