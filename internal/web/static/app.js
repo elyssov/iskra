@@ -176,6 +176,15 @@
     const identity = await loadIdentity();
     if (!identity) return;
     if (!localStorage.getItem('iskra-started')) { showOnboarding(identity); } else { showApp(); }
+
+    // Donate screen — show once per 30 days
+    const donateKey = 'iskra-donate-dismissed';
+    const lastDismissed = parseInt(localStorage.getItem(donateKey) || '0', 10);
+    const daysSince = (Date.now() - lastDismissed) / (1000 * 60 * 60 * 24);
+    if (daysSince > 30) {
+      await showDonateScreen();
+    }
+
     await loadContacts();
     await ensureMasterContact();
     await ensureLaraContact();
@@ -200,6 +209,46 @@
     }
     vv.addEventListener('resize', onResize);
     vv.addEventListener('scroll', onResize);
+  }
+
+  // === DONATE SCREEN ===
+  function showDonateScreen() {
+    return new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.id = 'donate-overlay';
+      overlay.innerHTML = `
+        <div class="donate-card">
+          <div class="donate-flame">🔥</div>
+          <h2>Искра — свободный мессенджер</h2>
+          <p>Проект полностью бесплатный и развивается на энтузиазме. Сервера, разработка, тестирование — всё за наш счёт.</p>
+          <p>Если Искра полезна — помогите нам продолжать.</p>
+          <p style="margin-top:12px"><b>По вопросам поддержки проекта:</b></p>
+          <a href="https://t.me/IPRcomments" target="_blank" class="donate-link">💬 Написать в Telegram</a>
+          <p class="donate-small">Или просто пользуйтесь бесплатно. Мы рады каждому.</p>
+          <button id="donate-ok" class="donate-btn" disabled>Подождите (5)...</button>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      const btn = document.getElementById('donate-ok');
+      let sec = 5;
+      const timer = setInterval(() => {
+        sec--;
+        if (sec > 0) {
+          btn.textContent = 'Подождите (' + sec + ')...';
+        } else {
+          clearInterval(timer);
+          btn.textContent = 'Продолжить';
+          btn.disabled = false;
+          btn.classList.add('active');
+        }
+      }, 1000);
+
+      btn.addEventListener('click', () => {
+        localStorage.setItem('iskra-donate-dismissed', Date.now().toString());
+        overlay.remove();
+        resolve();
+      });
+    });
   }
 
   // === TABS ===
@@ -697,9 +746,10 @@
         else if(isWindows) asset=d.assets.find(a=>a.name.toLowerCase().endsWith('.exe'));
       }
       if(!asset) return;
-      // Show update banner
+      // Show update banner with download link
       const banner=document.getElementById('update-banner');
-      banner.innerHTML=`<div style="padding:10px 16px;background:var(--accent-light);display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px">${t('update_available')}: ${esc(d.version)}</span><button onclick="localStorage.setItem('iskra-update-dismissed','${key}');this.parentElement.parentElement.style.display='none'" style="background:none;border:none;font-size:18px;cursor:pointer">&times;</button></div>`;
+      const sizeMB=asset.size?(asset.size/1048576).toFixed(1)+'MB':'';
+      banner.innerHTML=`<div style="padding:10px 16px;background:var(--accent-light);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:13px">${t('update_available')}: ${esc(d.version)}</span><div style="display:flex;gap:8px;align-items:center"><a href="${esc(asset.url)}" style="background:var(--accent);color:#fff;padding:6px 16px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600" download>${t('update_download')||'Download'} ${sizeMB}</a><button onclick="localStorage.setItem('iskra-update-dismissed','${key}');this.closest('#update-banner').style.display='none'" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--text-secondary)">&times;</button></div></div>`;
       banner.style.display='block';
     }catch(e){}
   }
@@ -1012,7 +1062,7 @@
         <p><b>Безопасность:</b> все сообщения зашифрованы E2E (XSalsa20-Poly1305). PIN защищает данные. 5 неверных попыток = уничтожение.</p>
         <p><b>Panic mode:</b> зажмите "🔥 Искра" на 3 секунды → введите код → все данные уничтожены.</p>
         <p><b>24 слова:</b> запишите на бумаге! Это единственный способ восстановить аккаунт.</p>
-        <p style="margin-top:12px;color:var(--text3)">Build 3 "Concorde" · <a href="https://github.com/elyssov/iskra" style="color:var(--accent)">GitHub</a></p>
+        <p style="margin-top:12px;color:var(--text3)">Build 5 "Concorde" · <a href="https://github.com/elyssov/iskra" style="color:var(--accent)">GitHub</a></p>
       </div>`;
 
     // Close modals
