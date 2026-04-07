@@ -166,6 +166,7 @@ func main() {
 	}
 
 	// Message handler (shared between transport and relay)
+	// Verifies signature and PoW before processing (fix: Borix audit)
 	handleMessage := func(msg *message.Message) {
 		if bloom.Contains(msg.ID) {
 			if *debug {
@@ -173,9 +174,22 @@ func main() {
 			}
 			return
 		}
+
+		// Verify signature — reject forged messages
+		if !msg.VerifySignature() {
+			log.Printf("[MSG] Invalid signature, dropping message %x", msg.ID[:4])
+			return
+		}
+
+		// Verify proof of work — reject spam
+		if !msg.VerifyPoW(16) {
+			log.Printf("[MSG] Invalid PoW, dropping message %x", msg.ID[:4])
+			return
+		}
+
 		bloom.Add(msg.ID)
 		forMe := msg.IsForRecipient(keypair.Ed25519Pub)
-		log.Printf("[MSG] Received message id=%x forMe=%v type=%d", msg.ID[:4], forMe, msg.ContentType)
+		log.Printf("[MSG] Verified message id=%x forMe=%v type=%d", msg.ID[:4], forMe, msg.ContentType)
 		api.HandleIncomingMessage(msg)
 		if !forMe && message.ShouldStoreInHold(msg.ContentType) {
 			hold.Store(msg)

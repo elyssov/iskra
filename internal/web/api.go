@@ -49,6 +49,7 @@ type API struct {
 	VaultKey     *[32]byte
 	UnlockCh     chan struct{} // closed when PIN verified / setup complete
 	DisplayName  string // user-set display name
+	PanicCode    string // user-configurable panic code (default "159")
 }
 
 // InboxFilePath returns the per-identity inbox file path.
@@ -1464,8 +1465,12 @@ func (a *API) HandlePanic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default panic code: "159" — can be made configurable later
-	if req.Code != "159" {
+	// Configurable panic code (fix: Borix audit — was hardcoded "159")
+	panicCode := a.PanicCode
+	if panicCode == "" {
+		panicCode = "159" // default
+	}
+	if req.Code != panicCode {
 		writeJSON(w, map[string]interface{}{"ok": false, "error": "неверный код"})
 		return
 	}

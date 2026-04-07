@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Искра 2.0 "Восток" — Splash Concept</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000; display:flex; justify-content:center; height:100vh; }
+.phone { width:100%; max-width:420px; height:100%; position:relative; overflow:hidden; }
+
+/* Космос */
+.splash {
+  height:100%;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+  background: radial-gradient(ellipse at 50% 120%, #0a1628 0%, #000000 70%);
+  overflow:hidden;
+}
+
+/* Звёзды — три слоя для глубины */
+.stars, .stars2, .stars3 {
+  position:absolute; inset:0;
+  background-image:
+    radial-gradient(1px 1px at 10% 20%, #fff 100%, transparent),
+    radial-gradient(1px 1px at 30% 15%, #fff 100%, transparent),
+    radial-gradient(1px 1px at 50% 35%, rgba(255,255,255,0.8) 100%, transparent),
+    radial-gradient(1px 1px at 70% 10%, #fff 100%, transparent),
+    radial-gradient(1px 1px at 85% 25%, rgba(255,255,255,0.6) 100%, transparent),
+    radial-gradient(1px 1px at 15% 45%, #fff 100%, transparent),
+    radial-gradient(1px 1px at 40% 55%, rgba(255,255,255,0.7) 100%, transparent),
+    radial-gradient(1px 1px at 65% 50%, #fff 100%, transparent),
+    radial-gradient(1px 1px at 90% 40%, rgba(255,255,255,0.5) 100%, transparent),
+    radial-gradient(1px 1px at 25% 60%, #fff 100%, transparent);
+  animation: twinkle 4s ease-in-out infinite alternate;
+}
+.stars2 {
+  background-image:
+    radial-gradient(1px 1px at 5% 5%, rgba(255,255,255,0.6) 100%, transparent),
+    radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.4) 100%, transparent),
+    radial-gradient(1px 1px at 45% 10%, rgba(255,255,255,0.7) 100%, transparent),
+    radial-gradient(1px 1px at 60% 45%, rgba(255,255,255,0.5) 100%, transparent),
+    radial-gradient(1px 1px at 80% 35%, rgba(255,255,255,0.6) 100%, transparent),
+    radial-gradient(1px 1px at 95% 55%, rgba(255,255,255,0.3) 100%, transparent),
+    radial-gradient(1px 1px at 35% 65%, rgba(255,255,255,0.5) 100%, transparent),
+    radial-gradient(1px 1px at 75% 20%, rgba(255,255,255,0.4) 100%, transparent);
+  animation: twinkle 3s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes twinkle {
+  0% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+/* Земля — дуга горизонта */
+.earth {
+  position:absolute;
+  bottom: -300px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 800px;
+  height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 0%,
+    #1a6bc4 0%,
+    #1558a8 20%,
+    #0d3f7a 40%,
+    #082a5c 60%,
+    #041838 80%,
+    #010a1a 100%
+  );
+  box-shadow:
+    0 -20px 60px rgba(30, 120, 220, 0.3),
+    0 -5px 20px rgba(80, 160, 255, 0.2),
+    inset 0 10px 40px rgba(0,0,0,0.5);
+}
+
+/* Атмосфера — тонкая голубая линия */
+.atmosphere {
+  position:absolute;
+  bottom: 98px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 820px;
+  height: 420px;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow:
+    0 -2px 8px rgba(100, 180, 255, 0.6),
+    0 -1px 3px rgba(150, 210, 255, 0.8);
+  pointer-events:none;
+}
+
+/* Искра — огонёк */
+.spark-wrap {
+  position:relative;
+  z-index:10;
+  margin-bottom: 20px;
+}
+
+.spark-glow {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(255, 160, 30, 0.8) 0%,
+    rgba(255, 100, 0, 0.4) 40%,
+    transparent 70%
+  );
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+
+.spark-icon {
+  font-size: 40px;
+  filter: drop-shadow(0 0 10px rgba(255,150,0,0.8));
+}
+
+/* Текст */
+.title {
+  font-family: -apple-system, 'Inter', sans-serif;
+  font-size: 36px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 2px;
+  z-index: 10;
+  margin-bottom: 8px;
+  text-shadow: 0 0 30px rgba(255,150,0,0.3);
+}
+
+.version {
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+  z-index: 10;
+  margin-bottom: 6px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+.codename {
+  font-size: 16px;
+  color: rgba(100, 180, 255, 0.8);
+  z-index: 10;
+  margin-bottom: 40px;
+  font-style: italic;
+  letter-spacing: 1px;
+}
+
+.quote {
+  font-size: 13px;
+  color: rgba(255,255,255,0.4);
+  z-index: 10;
+  font-style: italic;
+  margin-bottom: 30px;
+}
+
+/* Кнопки языка */
+.lang-row {
+  display:flex;
+  gap: 16px;
+  z-index: 10;
+}
+
+.lang-btn {
+  padding: 12px 32px;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.05);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.2s;
+  backdrop-filter: blur(10px);
+}
+
+.lang-btn:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.3);
+}
+
+.lang-btn:active {
+  transform: scale(0.96);
+}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="splash">
+    <div class="stars"></div>
+    <div class="stars2"></div>
+
+    <div class="spark-wrap">
+      <div class="spark-glow">
+        <span class="spark-icon">🔥</span>
+      </div>
+    </div>
+
+    <div class="title">ИСКРА</div>
+    <div class="version">2.0 — Build 1</div>
+    <div class="codename">« Восток »</div>
+
+    <div class="quote">"Поехали!"</div>
+
+    <div class="lang-row">
+      <button class="lang-btn">🇷🇺 Русский</button>
+      <button class="lang-btn">🇬🇧 English</button>
+    </div>
+
+    <div class="earth"></div>
+    <div class="atmosphere"></div>
+  </div>
+</div>
+</body>
+</html>
