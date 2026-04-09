@@ -33,10 +33,13 @@ type Contacts struct {
 func NewContacts(path string) (*Contacts, error) {
 	c := &Contacts{path: path}
 	if err := c.load(); err != nil && !os.IsNotExist(err) {
-		// Corrupted file — backup and start fresh
-		fmt.Printf("[Contacts] Load error (starting fresh): %v\n", err)
-		os.Rename(path, path+".corrupt")
-		c.contacts = nil
+		if data, readErr := os.ReadFile(path); readErr == nil && len(data) > 0 && data[0] != '[' && data[0] != '{' {
+			fmt.Printf("[Contacts] Encrypted, deferring load until PIN\n")
+		} else {
+			fmt.Printf("[Contacts] Load error (starting fresh): %v\n", err)
+			os.Rename(path, path+".corrupt")
+			c.contacts = nil
+		}
 	}
 	return c, nil
 }
