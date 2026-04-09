@@ -1,0 +1,20 @@
+FROM golang:1.24-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /relay ./cmd/relay/
+
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+RUN adduser -D -u 1000 appuser
+COPY --from=builder /relay /relay
+
+# HF Spaces requires port 7860 and writable dirs
+RUN mkdir -p /data/relay-hold /data/relay-telemetry && chown -R appuser:appuser /data
+WORKDIR /data
+USER appuser
+
+EXPOSE 7860
+ENTRYPOINT ["/relay"]
+CMD ["-port", "7860"]

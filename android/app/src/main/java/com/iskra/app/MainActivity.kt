@@ -136,6 +136,18 @@ class MainActivity : AppCompatActivity() {
                     return@Thread
                 }
 
+                // Send anonymous device info for telemetry
+                try {
+                    val androidId = android.provider.Settings.Secure.getString(
+                        contentResolver, android.provider.Settings.Secure.ANDROID_ID) ?: "unknown"
+                    val model = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
+                    val osVer = "Android ${android.os.Build.VERSION.RELEASE}"
+                    val lang = java.util.Locale.getDefault().language
+                    Iskramobile.setDeviceInfo(androidId, model, osVer, lang)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Telemetry init failed: ${e.message}")
+                }
+
                 runOnUiThread {
                     port = startedPort
                     onCoreReady()

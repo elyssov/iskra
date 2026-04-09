@@ -19,6 +19,7 @@ import (
 	"github.com/iskra-messenger/iskra/internal/message"
 	"github.com/iskra-messenger/iskra/internal/security"
 	"github.com/iskra-messenger/iskra/internal/store"
+	"github.com/iskra-messenger/iskra/internal/telemetry"
 	"github.com/iskra-messenger/iskra/internal/web"
 )
 
@@ -31,7 +32,10 @@ var (
 	mobileChannels *store.Channels
 	mobileAPI      *web.API
 	mobileDataDir  string
-	autoSaveStop chan struct{}
+	autoSaveStop   chan struct{}
+	mobileTelemetry *telemetry.Collector
+	mobileContacts *store.Contacts
+	mobileHold     *store.Hold
 )
 
 // Start initializes and starts the Iskra node.
@@ -95,8 +99,17 @@ func Start(dataDir string, port int) int {
 		log.Printf("[Mobile] Mesh transport failed (relay-only mode): %v", err)
 	}
 
-	// Relay — always connect to default
-	relayURL := "wss://iskra-relay.onrender.com/ws"
+	// Relay pool — multi-relay support
+	relayURL := "wss://iskra-relay-production.up.railway.app/ws"
+	relayPool := mesh.NewRelayPool(
+		filepath.Join(dataDir, "relays.json"),
+		[]string{
+			relayURL,
+			"wss://iskra-relay.onrender.com/ws",
+		},
+	)
+	go relayPool.CheckAll()
+
 	relayClient := mesh.NewRelayClient(relayURL, keypair.Ed25519Pub, keypair.X25519Pub)
 	mode := "relay"
 
@@ -134,6 +147,7 @@ func Start(dataDir string, port int) int {
 		Seed:        seed,
 		Locked:      locked,
 		UnlockCh:    unlockCh,
+		RelayPool:   relayPool,
 	}
 
 	// Message handler
@@ -191,6 +205,8 @@ func Start(dataDir string, port int) int {
 	mobileChannels = channels
 	mobileAPI = api
 	mobileDataDir = dataDir
+	mobileContacts = contacts
+	mobileHold = hold
 
 	// Start auto-save goroutine (every 10 seconds)
 	autoSaveStop = make(chan struct{})
@@ -230,6 +246,61 @@ func Start(dataDir string, port int) int {
 
 	fmt.Printf("Iskra mobile started on port %d\n", serverPort)
 	return serverPort
+}
+
+// SetDeviceInfo provides Android device details for anonymous telemetry.
+// Called by Kotlin after Start(). androidID = Settings.Secure.ANDROID_ID.
+// model = Build.MANUFACTURER + " " + Build.MODEL. osVersion = "Android " + Build.VERSION.RELEASE.
+func SetDeviceInfo(androidID, model, osVersion, lang string) {
+	serverMu.Lock()
+	defer serverMu.Unlock()
+
+	if mobileAPI == nil {
+		return
+	}
+
+	relayHTTPBase := ""
+	if mobileAPI.RelayClient != nil {
+		relayHTTPBase = mobileAPI.RelayClient.HTTPBaseURL()
+	}
+
+	mobileTelemetry = telemetry.New(
+		relayHTTPBase,
+		web.BuildNumber,
+		androidID, // will be SHA-256 hashed internally
+		model,
+		osVersion,
+		lang,
+		true, // enabled by default
+	)
+	mobileAPI.Telemetry = mobileTelemetry
+
+	// Send after 30s delay
+	go func() {
+		time.Sleep(30 * time.Second)
+		serverMu.Lock()
+		if mobileHold != nil {
+			holdMsgs, _ := mobileHold.GetForSync()
+			mobileTelemetry.HoldCount = len(holdMsgs)
+		}
+		if mobileContacts != nil {
+			mobileTelemetry.ContactCount = len(mobileContacts.List())
+		}
+		mobileTelemetry.Transport = "relay"
+		serverMu.Unlock()
+		mobileTelemetry.Send()
+	}()
+
+	log.Printf("[Telemetry] Device info set: model=%s os=%s", model, osVersion)
+}
+
+// SetTelemetryEnabled allows user to opt out of anonymous telemetry.
+func SetTelemetryEnabled(enabled bool) {
+	serverMu.Lock()
+	defer serverMu.Unlock()
+	if mobileTelemetry != nil {
+		mobileTelemetry.SetEnabled(enabled)
+	}
 }
 
 // GetPort returns the HTTP port the server is listening on.

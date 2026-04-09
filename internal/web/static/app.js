@@ -1051,6 +1051,41 @@
       displayNameInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveName();displayNameInput.blur();}});
     }
 
+    // Relay list management
+    function loadRelayList(){
+      fetch('/api/relays').then(r=>r.json()).then(list=>{
+        const el=document.getElementById('relay-list');
+        if(!el||!Array.isArray(list))return;
+        el.innerHTML=list.map(r=>{
+          const dot=r.alive?'🟢':'🔴';
+          const src=r.source==='builtin'?'':'<span style="cursor:pointer;color:var(--text3);margin-left:8px" onclick="removeRelay(\''+r.url+'\')">✕</span>';
+          return `<div class="settings-item" style="font-size:12px">${dot} <span style="flex:1;overflow:hidden;text-overflow:ellipsis">${r.url.replace('wss://','').replace('/ws','')}</span>${src}</div>`;
+        }).join('');
+      }).catch(()=>{});
+    }
+    window.removeRelay=function(url){
+      fetch('/api/relays',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})}).then(()=>loadRelayList());
+    };
+    document.getElementById('btn-relay-add').addEventListener('click',()=>{
+      const inp=document.getElementById('relay-add-url');
+      const url=inp.value.trim();
+      if(!url)return;
+      fetch('/api/relays',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})}).then(()=>{inp.value='';loadRelayList();});
+    });
+    loadRelayList();
+
+    // Telemetry opt-out toggle
+    const telemToggle=document.getElementById('settings-telemetry');
+    if(telemToggle){
+      const saved=localStorage.getItem('iskra-telemetry');
+      if(saved==='off') telemToggle.checked=false;
+      telemToggle.addEventListener('change',()=>{
+        const enabled=telemToggle.checked;
+        localStorage.setItem('iskra-telemetry',enabled?'on':'off');
+        fetch('/api/telemetry/enabled',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})}).catch(()=>{});
+      });
+    }
+
     // Help modal content
     document.getElementById('help-content').innerHTML=`
       <div class="modal-header"><h3>${t('help_title')||'Помощь'}</h3><button class="modal-close" onclick="closeModal('modal-help')">&times;</button></div>
