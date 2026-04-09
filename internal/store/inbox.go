@@ -128,6 +128,19 @@ func (in *Inbox) Keys() []string {
 }
 
 // DeleteChat removes all messages for a contact.
+// ExportAll returns all messages for backup (not encrypted, just raw data).
+func (in *Inbox) ExportAll() map[string][]InboxMessage {
+	in.mu.RLock()
+	defer in.mu.RUnlock()
+	result := make(map[string][]InboxMessage, len(in.messages))
+	for k, v := range in.messages {
+		msgs := make([]InboxMessage, len(v))
+		copy(msgs, v)
+		result[k] = msgs
+	}
+	return result
+}
+
 func (in *Inbox) DeleteChat(contactID string) {
 	in.mu.Lock()
 	defer in.mu.Unlock()

@@ -24,7 +24,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "9" // Iskra 2.0 Build 9 "El Dorado"
+const BuildNumber = "10" // Iskra 2.0 Build 10 "El Dorado"
 
 // API handles REST API requests.
 type API struct {
@@ -169,6 +169,72 @@ func (a *API) HandleRelays(w http.ResponseWriter, r *http.Request) {
 		a.RelayPool.Remove(req.URL)
 		writeJSON(w, map[string]bool{"ok": true})
 	}
+}
+
+// HandlePanicPinStatus returns whether a panic PIN is set.
+func (a *API) HandlePanicPinStatus(w http.ResponseWriter, r *http.Request) {
+	panicFile := filepath.Join(a.DataDir, "panic_pin.dat")
+	_, err := os.ReadFile(panicFile)
+	writeJSON(w, map[string]bool{"hasPin": err == nil})
+}
+
+// HandlePanicPinSet sets the panic PIN.
+func (a *API) HandlePanicPinSet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct{ Pin string `json:"pin"` }
+	if err := readJSON(r, &req); err != nil || len(req.Pin) < 4 {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "PIN минимум 4 цифры"})
+		return
+	}
+	// Hash with Argon2 and save
+	if err := security.SetPanicPIN(a.DataDir, req.Pin); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// HandleBackupCreate creates an encrypted backup of messages.
+func (a *API) HandleBackupCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	var req struct{ Password string `json:"password"` }
+	if err := readJSON(r, &req); err != nil || len(req.Password) < 4 {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "Пароль минимум 4 символа"})
+		return
+	}
+
+	// Collect all messages from inbox
+	allMessages := a.Inbox.ExportAll()
+	data, err := json.Marshal(allMessages)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": "Failed to serialize"})
+		return
+	}
+
+	// Encrypt with password-derived key
+	encrypted, err := security.EncryptWithPassword(data, req.Password)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	// Save to file
+	timestamp := time.Now().Format("2006-01-02_15-04")
+	filename := fmt.Sprintf("iskra-backup-%s.enc", timestamp)
+	backupPath := filepath.Join(a.DataDir, filename)
+	if err := os.WriteFile(backupPath, encrypted, 0600); err != nil {
+		writeJSON(w, map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+
+	sizeStr := fmt.Sprintf("%.1f KB", float64(len(encrypted))/1024.0)
+	writeJSON(w, map[string]interface{}{"ok": true, "path": backupPath, "size": sizeStr})
 }
 
 // HandleTelemetryEnabled toggles anonymous telemetry on/off.
@@ -1464,6 +1530,20 @@ func (a *API) HandlePINVerify(w http.ResponseWriter, r *http.Request) {
 		security.WipeAll(a.DataDir)
 		security.GenerateDecoy(a.DataDir)
 		writeJSON(w, map[string]interface{}{"ok": false, "wiped": true, "error": "Данные уничтожены"})
+		return
+	}
+
+	// Check panic PIN FIRST — if it matches, silently wipe and show decoy
+	if security.HasPanicPIN(a.DataDir) && security.VerifyPanicPIN(a.DataDir, req.PIN) {
+		log.Println("[PIN] Panic PIN entered — wiping and generating decoy")
+		security.WipeAll(a.DataDir)
+		security.GenerateDecoy(a.DataDir)
+		// Respond as if normal login succeeded — attacker sees "messenger with boring chats"
+		a.Locked = false
+		if a.UnlockCh != nil {
+			select { case <-a.UnlockCh: default: close(a.UnlockCh) }
+		}
+		writeJSON(w, map[string]interface{}{"ok": true, "panic": true})
 		return
 	}
 

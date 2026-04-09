@@ -71,13 +71,15 @@
 
   function setupPINKeypad() {
     document.querySelectorAll('.pin-key[data-num]').forEach(btn => {
-      btn.addEventListener('click', () => { if (pinValue.length < 6) { pinValue += btn.dataset.num; updatePINDots(); } });
+      btn.addEventListener('click', () => { if (pinValue.length < 12) { pinValue += btn.dataset.num; updatePINDots(); } });
     });
-    document.getElementById('pin-ok').addEventListener('click', () => { if (pinValue.length >= 4) submitPIN(); });
+    const pinOkBtn = document.getElementById('pin-ok');
+    pinOkBtn.disabled = true; pinOkBtn.style.opacity = '0.35';
+    pinOkBtn.addEventListener('click', () => { if (pinValue.length >= 4) submitPIN(); });
     document.getElementById('pin-del').addEventListener('click', () => { if (pinValue.length > 0) { pinValue = pinValue.slice(0,-1); updatePINDots(); } });
     document.addEventListener('keydown', e => {
       if (document.getElementById('pin-screen').style.display === 'none') return;
-      if (e.key >= '0' && e.key <= '9' && pinValue.length < 6) { pinValue += e.key; updatePINDots(); }
+      if (e.key >= '0' && e.key <= '9' && pinValue.length < 12) { pinValue += e.key; updatePINDots(); }
       else if (e.key === 'Backspace') { pinValue = pinValue.slice(0,-1); updatePINDots(); }
       else if (e.key === 'Enter' && pinValue.length >= 4) submitPIN();
     });
@@ -85,6 +87,9 @@
 
   function updatePINDots() {
     document.querySelectorAll('.pin-dot').forEach((d,i) => d.classList.toggle('filled', i < pinValue.length));
+    const okBtn = document.getElementById('pin-ok');
+    if (pinValue.length >= 4) { okBtn.disabled = false; okBtn.style.opacity = '1'; }
+    else { okBtn.disabled = true; okBtn.style.opacity = '0.35'; }
   }
 
   async function submitPIN() {
@@ -1050,6 +1055,40 @@
       displayNameInput.addEventListener('blur',saveName);
       displayNameInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();saveName();displayNameInput.blur();}});
     }
+
+    // Security panel
+    document.getElementById('btn-security').addEventListener('click',()=>{document.getElementById('security-view').classList.add('open');
+      // Load panic PIN status
+      fetch('/api/panic/status').then(r=>r.json()).then(d=>{
+        document.getElementById('panic-pin-status').textContent=d.hasPin?'установлен ✓':'не установлен';
+      }).catch(()=>{});
+    });
+    document.getElementById('btn-security-back').addEventListener('click',()=>{document.getElementById('security-view').classList.remove('open');});
+
+    // Panic PIN save
+    document.getElementById('btn-panic-pin-save').addEventListener('click',()=>{
+      const pin=document.getElementById('panic-pin-input').value.trim();
+      if(pin.length<4){alert('PIN должен быть минимум 4 цифры');return;}
+      fetch('/api/panic/pin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin})})
+        .then(r=>r.json()).then(d=>{
+          if(d.ok){document.getElementById('panic-pin-status').textContent='установлен ✓';document.getElementById('panic-pin-input').value='';alert('Панический PIN сохранён. Не забудьте его!');}
+          else alert(d.error||'Ошибка');
+        });
+    });
+
+    // Backup creation
+    document.getElementById('btn-backup-create').addEventListener('click',()=>{
+      const pwd=document.getElementById('backup-password').value;
+      if(pwd.length<4){alert('Пароль минимум 4 символа');return;}
+      document.getElementById('backup-status').textContent='Создаётся...';
+      fetch('/api/backup/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pwd})})
+        .then(r=>r.json()).then(d=>{
+          if(d.ok){
+            document.getElementById('backup-status').innerHTML='✅ Бэкап сохранён: <b>'+d.path+'</b> ('+d.size+')';
+            document.getElementById('backup-password').value='';
+          } else document.getElementById('backup-status').textContent='❌ '+d.error;
+        }).catch(e=>{document.getElementById('backup-status').textContent='❌ '+e;});
+    });
 
     // Relay list management
     function loadRelayList(){
