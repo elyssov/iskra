@@ -155,6 +155,14 @@ func Start(dataDir string, port int) int {
 		if bloom.Contains(msg.ID) {
 			return
 		}
+		if !msg.VerifySignature() {
+			bloom.Add(msg.ID) // don't re-receive invalid msgs
+			return
+		}
+		if !msg.VerifyPoW(16) {
+			bloom.Add(msg.ID)
+			return
+		}
 		bloom.Add(msg.ID)
 		api.HandleIncomingMessage(msg)
 		if !msg.IsForRecipient(keypair.Ed25519Pub) && message.ShouldStoreInHold(msg.ContentType) {

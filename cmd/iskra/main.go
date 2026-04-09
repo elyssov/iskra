@@ -190,13 +190,13 @@ func main() {
 
 		// Verify signature — reject forged messages
 		if !msg.VerifySignature() {
-			log.Printf("[MSG] Invalid signature, dropping message %x", msg.ID[:4])
+			bloom.Add(msg.ID) // remember to stop re-receiving on every sync
 			return
 		}
 
 		// Verify proof of work — reject spam
 		if !msg.VerifyPoW(16) {
-			log.Printf("[MSG] Invalid PoW, dropping message %x", msg.ID[:4])
+			bloom.Add(msg.ID)
 			return
 		}
 
