@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,15 @@ import (
 )
 
 const laraDataDir = ".lara"
+
+func init() {
+	// Windows: set console to UTF-8
+	if os.Getenv("OS") == "Windows_NT" {
+		os.Setenv("PYTHONIOENCODING", "utf-8")
+		// exec chcp 65001 silently
+		exec.Command("cmd", "/c", "chcp", "65001").Run()
+	}
+}
 
 func main() {
 	if len(os.Args) < 2 {
@@ -49,10 +59,11 @@ func main() {
 		apiSend(userID, text)
 	case "read", "r":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: lara read <userID>")
-			os.Exit(1)
+			// No userID — show ALL incoming from everyone
+			showAllInbox()
+		} else {
+			apiGet("/api/messages/" + os.Args[2])
 		}
-		apiGet("/api/messages/" + os.Args[2])
 	case "contacts", "c":
 		apiGet("/api/contacts")
 	case "add":
@@ -326,6 +337,49 @@ func loadOrCreateKeypair(dir string) (*identity.Keypair, []string, bool) {
 // ═══════════════════════════════════════
 //  CLI COMMANDS (talk to running node)
 // ═══════════════════════════════════════
+
+func showAllInbox() {
+	port := getPort()
+	if port == "0" { fmt.Println("Нода не запущена."); os.Exit(1) }
+
+	// Read inbox.json directly for complete view
+	dir := dataDir()
+	data, err := os.ReadFile(filepath.Join(dir, "inbox.json"))
+	if err != nil { fmt.Println("Inbox пуст"); return }
+
+	var inbox map[string][]map[string]interface{}
+	if err := json.Unmarshal(data, &inbox); err != nil { fmt.Printf("Ошибка: %v\n", err); return }
+
+	// Set console to UTF-8 on Windows
+	os.Stdout.WriteString("\033[?25h") // ensure cursor visible
+
+	total := 0
+	for uid, msgs := range inbox {
+		for _, m := range msgs {
+			outgoing, _ := m["outgoing"].(bool)
+			if outgoing { continue }
+			text, _ := m["text"].(string)
+			subj, _ := m["subject"].(string)
+			ts, _ := m["timestamp"].(float64)
+			dir := "<<"
+			prefix := uid
+			if len(prefix) > 12 { prefix = prefix[:12] }
+			if subj != "" {
+				fmt.Printf("  %s [%s] %s subj=%q\n     %s\n\n", dir, time.Unix(int64(ts), 0).Format("02.01 15:04"), prefix, subj, truncate(text, 120))
+			} else {
+				fmt.Printf("  %s [%s] %s\n     %s\n\n", dir, time.Unix(int64(ts), 0).Format("02.01 15:04"), prefix, truncate(text, 120))
+			}
+			total++
+		}
+	}
+	fmt.Printf("--- %d входящих сообщений ---\n", total)
+}
+
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n { return s }
+	return string(r[:n]) + "..."
+}
 
 func apiGet(path string) {
 	port := getPort()
