@@ -75,3 +75,56 @@ func IncrementAttempts(dataDir string) int {
 func ResetAttempts(dataDir string) {
 	os.Remove(filepath.Join(dataDir, attemptsFile))
 }
+
+const panicPinFile = "panic_pin.dat"
+
+// SetPanicPIN saves a separate panic PIN (Argon2 hashed).
+func SetPanicPIN(dataDir string, pin string) error {
+	salt := make([]byte, saltSize)
+	if _, err := rand.Read(salt); err != nil {
+		return err
+	}
+	hash := argon2.IDKey([]byte(pin), salt, argonTime, argonMemory, argonThreads, hashSize)
+	data := make([]byte, saltSize+hashSize)
+	copy(data[:saltSize], salt)
+	copy(data[saltSize:], hash)
+	return os.WriteFile(filepath.Join(dataDir, panicPinFile), data, 0600)
+}
+
+// VerifyPanicPIN checks if PIN matches the panic PIN.
+func VerifyPanicPIN(dataDir string, pin string) bool {
+	data, err := os.ReadFile(filepath.Join(dataDir, panicPinFile))
+	if err != nil || len(data) != saltSize+hashSize {
+		return false
+	}
+	salt := data[:saltSize]
+	storedHash := data[saltSize:]
+	hash := argon2.IDKey([]byte(pin), salt, argonTime, argonMemory, argonThreads, hashSize)
+	return subtle.ConstantTimeCompare(hash, storedHash) == 1
+}
+
+// HasPanicPIN returns true if a panic PIN has been set.
+func HasPanicPIN(dataDir string) bool {
+	info, err := os.Stat(filepath.Join(dataDir, panicPinFile))
+	return err == nil && info.Size() == saltSize+hashSize
+}
+
+// EncryptWithPassword encrypts data using a password (Argon2 key derivation + XSalsa20).
+func EncryptWithPassword(data []byte, password string) ([]byte, error) {
+	salt := make([]byte, saltSize)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
+	}
+	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, hashSize)
+	var key32 [32]byte
+	copy(key32[:], key)
+	encrypted, err := EncryptData(data, &key32)
+	if err != nil {
+		return nil, err
+	}
+	// Prepend salt so we can re-derive key for decryption
+	result := make([]byte, saltSize+len(encrypted))
+	copy(result[:saltSize], salt)
+	copy(result[saltSize:], encrypted)
+	return result, nil
+}

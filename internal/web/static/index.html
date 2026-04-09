@@ -31,8 +31,9 @@
     <h1 class="pin-title">Искра</h1>
     <p class="pin-subtitle" id="pin-subtitle" data-i18n="pin_enter">Введите PIN-код</p>
     <div class="pin-dots" id="pin-dots">
-      <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
-      <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+      <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+      <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+      <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
     </div>
     <div class="pin-error" id="pin-error"></div>
     <div class="pin-keypad">
@@ -83,6 +84,7 @@
     <div id="header-top">
       <div id="app-title">🔥 Искра <span id="build-num" style="font-size:11px;opacity:0.5;font-weight:400">2.0</span></div>
       <div id="header-actions">
+        <button id="btn-security" class="header-btn header-btn-danger" title="Безопасность">🛡️</button>
         <button id="btn-theme" class="header-btn" title="Тема">🌓</button>
         <button id="btn-help" class="header-btn" title="Помощь">?</button>
         <button id="btn-settings" class="header-btn" title="Настройки">⚙️</button>
@@ -309,6 +311,47 @@
     </div>
   </div>
 
+</div>
+
+<!-- Панель безопасности -->
+<div id="security-view">
+  <div class="settings-header">
+    <button id="btn-security-back" class="back-btn">←</button>
+    <span>🛡️ Безопасность</span>
+  </div>
+  <div class="settings-body">
+    <div class="settings-section">
+      <div class="section-label" style="color:#C62828">⚠️ Панический PIN</div>
+      <div class="settings-hint">Если вас задержали — введите этот PIN вместо обычного. Вся переписка будет мгновенно уничтожена и заменена фейковыми разговорами о погоде и котиках.</div>
+      <div class="settings-item">
+        <span>Панический PIN</span>
+        <span id="panic-pin-status" class="settings-value">не установлен</span>
+      </div>
+      <div class="settings-item">
+        <input type="password" id="panic-pin-input" placeholder="Введите панический PIN (4-12 цифр)" style="width:60%" inputmode="numeric" pattern="[0-9]*">
+        <button id="btn-panic-pin-save" style="padding:6px 14px;border-radius:8px;border:none;background:#C62828;color:white;cursor:pointer;font-size:13px">Сохранить</button>
+      </div>
+      <div class="settings-hint" style="color:#C62828">⚡ Панический PIN должен отличаться от обычного PIN!</div>
+    </div>
+    <div class="settings-section">
+      <div class="section-label">📦 Бэкап переписки</div>
+      <div class="settings-hint">Создаёт зашифрованный файл со всей перепиской (без трюма). Файл защищён паролем, который вы придумаете.</div>
+      <div class="settings-item">
+        <input type="password" id="backup-password" placeholder="Пароль для бэкапа" style="width:55%">
+        <button id="btn-backup-create" style="padding:6px 14px;border-radius:8px;border:none;background:var(--accent);color:white;cursor:pointer;font-size:13px">Создать бэкап</button>
+      </div>
+      <div id="backup-status" class="settings-hint"></div>
+      <div class="settings-hint" style="margin-top:8px;padding:12px 16px;background:var(--bg3);border-radius:8px;line-height:1.6">
+        📋 <b>Инструкция для параноиков (а мы все тут параноики):</b><br>
+        1. Нажмите «Создать бэкап» — файл сохранится на устройстве<br>
+        2. Скопируйте файл на флешку<br>
+        3. Удалите файл с устройства<br>
+        4. Флешку закопайте под ближайшим дубом 🌳<br>
+        5. Нарисуйте карту сокровищ. Желательно на пергаменте<br>
+        6. Если серьёзно — храните в надёжном месте, НЕ на этом устройстве
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Контекстное меню контакта -->
