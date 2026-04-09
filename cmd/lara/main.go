@@ -421,8 +421,8 @@ func apiSend(userID, text string) {
 		os.Exit(1)
 	}
 	userID = resolveUserID(userID) // expand short prefix to full ID
-	body := fmt.Sprintf(`{"text":"%s"}`, strings.ReplaceAll(text, `"`, `\"`))
-	resp, err := http.Post(baseURL()+"/api/messages/"+userID, "application/json", strings.NewReader(body))
+	bodyJSON, _ := json.Marshal(map[string]string{"text": text})
+	resp, err := http.Post(baseURL()+"/api/messages/"+userID, "application/json", strings.NewReader(string(bodyJSON)))
 	if err != nil {
 		fmt.Printf("Ошибка: %v\n", err)
 		os.Exit(1)
