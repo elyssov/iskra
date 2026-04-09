@@ -720,7 +720,18 @@
     _sending=true; input.value=''; input.style.height='auto';
     const body={text};
     if(replyingTo){body.replyTo=replyingTo.id;body.replyText=replyingTo.text.length>100?replyingTo.text.substring(0,100):replyingTo.text;body.replyFrom=replyingTo.outgoing?'Вы':(currentContact.name||'');replyingTo=null;const p=document.getElementById('reply-preview');if(p)p.style.display='none';}
-    try{await fetch(`/api/messages/${currentContact.user_id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});loadMessages();}catch(e){}finally{_sending=false;}
+    try{
+      const r=await fetch(`/api/messages/${currentContact.user_id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const d=await r.json();
+      // Immediately add to local cache so sender sees it without waiting for next poll
+      const outMsg={id:d.id||'',from:window._identity?.userID||'',from_pub:'',text:body.text,timestamp:Math.floor(Date.now()/1000),status:d.status||'sent',outgoing:true};
+      if(body.replyTo){outMsg.replyTo=body.replyTo;outMsg.replyText=body.replyText;outMsg.replyFrom=body.replyFrom;}
+      if(!msgCache[currentContact.user_id])msgCache[currentContact.user_id]=[];
+      msgCache[currentContact.user_id].push(outMsg);
+      lastMsgJSON=''; // force re-render
+      renderMessages(msgCache[currentContact.user_id]);
+      loadMessages(); // also fetch from server for authoritative state
+    }catch(e){}finally{_sending=false;}
   }
 
   async function sendGroupMessage() {

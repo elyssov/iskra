@@ -519,13 +519,13 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 			log.Printf("[Recv] Decompression failed, using raw: %v", err)
 			plaintext = compressedPlain // fallback: use as-is
 		}
-		log.Printf("[Recv] Decrypted message, type=%d, len=%d", msg.ContentType, len(plaintext))
+		log.Printf("[Recv] msg type=%d len=%d", msg.ContentType, len(plaintext))
 
 		// Handle by content type
 		switch msg.ContentType {
 		case message.ContentText:
 			senderID := identity.UserID(msg.AuthorPub)
-			log.Printf("[Recv] Text from %s: %q", senderID[:8], string(plaintext))
+			log.Printf("[Recv] DM from %s, %d bytes", senderID[:8], len(plaintext))
 			a.Inbox.AddMessage(senderID, store.InboxMessage{
 				ID:        hex.EncodeToString(msg.ID[:]),
 				From:      senderID,
@@ -582,7 +582,7 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 						}
 					}
 
-					log.Printf("[Group] Text in %s from %s: %q", groupID[:8], senderName, text)
+					log.Printf("[Group] msg in %s from %s, %d bytes", groupID[:8], senderName, len(text))
 					a.Groups.AddMessage(store.GroupMessage{
 						ID:        hex.EncodeToString(msg.ID[:]),
 						GroupID:   groupID,
@@ -677,7 +677,7 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 						})
 					}
 
-					log.Printf("[Channel] Post in %q from %s: %q", chTitle, authorID[:8], text)
+					log.Printf("[Channel] post in %s from %s, %d bytes", chTitle, authorID[:8], len(text))
 					a.Channels.AddPost(store.ChannelPost{
 						ID:        hex.EncodeToString(msg.ID[:]),
 						ChannelID: chID,

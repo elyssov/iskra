@@ -165,7 +165,14 @@ func startNode() {
 	transport := mesh.NewTransport(keypair.Ed25519Pub, 0, peers)
 	transport.Start()
 
+	// Relay pool (multi-relay)
 	relayURL := "wss://iskra-relay-production.up.railway.app/ws"
+	relayPool := mesh.NewRelayPool(
+		filepath.Join(dir, "relays.json"),
+		[]string{relayURL, "wss://iskra-relay.onrender.com/ws"},
+	)
+	go relayPool.CheckAll()
+
 	relayClient := mesh.NewRelayClient(relayURL, keypair.Ed25519Pub, keypair.X25519Pub)
 
 	var seed [32]byte
@@ -196,6 +203,7 @@ func startNode() {
 		Seed:        seed,
 		Locked:      false,
 		UnlockCh:    unlockCh,
+		RelayPool:   relayPool,
 	}
 
 	// Message handler
@@ -262,6 +270,14 @@ func startNode() {
 	go func() {
 		for range time.Tick(5 * time.Minute) {
 			hold.Cleanup()
+		}
+	}()
+
+	// Auto-save inbox every 10 seconds
+	inboxPath := filepath.Join(dir, "inbox.json")
+	go func() {
+		for range time.Tick(10 * time.Second) {
+			inbox.Save(inboxPath)
 		}
 	}()
 
