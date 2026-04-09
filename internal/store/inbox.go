@@ -76,9 +76,14 @@ func (in *Inbox) GetMessages(contactID string) []InboxMessage {
 	in.mu.RLock()
 	defer in.mu.RUnlock()
 
-	msgs := in.messages[contactID]
-	result := make([]InboxMessage, len(msgs))
-	copy(result, msgs)
+	// Filter out letters — they belong in Mail tab, not chat
+	var result []InboxMessage
+	for _, m := range in.messages[contactID] {
+		if m.MsgType == "letter" || m.Subject != "" {
+			continue // skip letters
+		}
+		result = append(result, m)
+	}
 	return result
 }
 
