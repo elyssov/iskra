@@ -165,7 +165,7 @@ func startNode() {
 	transport := mesh.NewTransport(keypair.Ed25519Pub, 0, peers)
 	transport.Start()
 
-	relayURL := "wss://iskra-relay.onrender.com/ws"
+	relayURL := "wss://iskra-relay-production.up.railway.app/ws"
 	relayClient := mesh.NewRelayClient(relayURL, keypair.Ed25519Pub, keypair.X25519Pub)
 
 	var seed [32]byte

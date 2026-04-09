@@ -85,6 +85,7 @@ type relay struct {
 	hold         map[string][]holdEntry   // UserID → queued messages (СВХ)
 	knownPeers   map[string]*knownPeer   // UserID → ever-connected peer (TTL 30 days)
 	lastSync     map[string]time.Time     // UserID → last NEWSYNC time (cooldown)
+	knownRelays  []string                 // known relay URLs (federation)
 	stats        relayStats               // hourly stats
 	mu           sync.RWMutex
 }
@@ -126,20 +127,32 @@ func main() {
 		}
 	}()
 
+	// Self-ping to prevent hosting platform sleep (HF Spaces, Render free tier)
+	go func() {
+		selfURL := fmt.Sprintf("http://localhost:%d/", *port)
+		for range time.Tick(10 * time.Minute) {
+			http.Get(selfURL)
+		}
+	}()
+
 	http.HandleFunc("/ws", r.handleWS)
 	http.HandleFunc("/online", r.handleOnline)
 	http.HandleFunc("/directory", r.handleDirectory)
 	http.HandleFunc("/hold-stats", r.handleHoldStats)
+	http.HandleFunc("/api/telemetry", r.handleTelemetry)
+	http.HandleFunc("/api/stats", r.handleStats)
+	http.HandleFunc("/api/federation", r.handleFederation)
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintf(w, "Iskra Relay v0.3 (СВХ)\n")
+		fmt.Fprintf(w, "Iskra Relay v0.4 (СВХ + Telemetry)\n")
 	})
 
 	addr := fmt.Sprintf(":%d", *port)
-	fmt.Printf("🔥 Искра Relay (СВХ)\n")
+	fmt.Printf("🔥 Искра Relay v0.4 (СВХ + Telemetry)\n")
 	fmt.Printf("   Порт: %d\n", *port)
 	fmt.Printf("   WebSocket: ws://0.0.0.0:%d/ws\n", *port)
 	fmt.Printf("   Трюм: TTL %v, макс %d/получатель, %d всего\n", holdTTL, holdMaxPerUID, holdMaxTotal)
+	fmt.Printf("   Телеметрия: %d уникальных устройств\n", len(telemetry.Devices))
 	fmt.Println("   Не логирует. Не расшифровывает. Хранит и передаёт.")
 	fmt.Println()
 
@@ -610,6 +623,241 @@ func (r *relay) broadcastExcept(excludeUID string, frame []byte) {
 	for _, c := range targets {
 		c.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		c.WriteMessage(websocket.BinaryMessage, frame)
+	}
+}
+
+// === ANONYMOUS TELEMETRY ===
+// Tracks unique devices, platforms, models — no personal data.
+// device_hash = SHA-256(ANDROID_ID + salt) — irreversible.
+
+const telemetryDir = "relay-telemetry"
+
+type deviceRecord struct {
+	DeviceHash  string `json:"device_hash"`
+	Platform    string `json:"platform"`     // android, windows, linux
+	Model       string `json:"model"`        // "Samsung SM-S926B"
+	OSVersion   string `json:"os_version"`   // "Android 15", "Win11"
+	AppVersion  string `json:"app_version"`  // "2.0-b8"
+	Transport   string `json:"transport"`    // relay, dns, lan, wifi_direct
+	Lang        string `json:"lang"`         // ru, en
+	HoldCount   int    `json:"hold_count"`   // messages in hold
+	ContactCount int   `json:"contact_count"`
+	UptimeMin   int    `json:"uptime_min"`
+	FirstSeen   int64  `json:"first_seen"`
+	LastSeen    int64  `json:"last_seen"`
+	Sessions    int    `json:"sessions"`
+}
+
+type telemetryStore struct {
+	Devices map[string]*deviceRecord `json:"devices"` // device_hash → record
+	mu      sync.RWMutex
+}
+
+var telemetry = &telemetryStore{
+	Devices: make(map[string]*deviceRecord),
+}
+
+func init() {
+	telemetry.load()
+}
+
+func (ts *telemetryStore) load() {
+	path := telemetryDir + "/devices.json"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	json.Unmarshal(data, &ts.Devices)
+}
+
+func (ts *telemetryStore) save() {
+	ts.mu.RLock()
+	data, err := json.MarshalIndent(ts.Devices, "", "  ")
+	ts.mu.RUnlock()
+	if err != nil {
+		return
+	}
+	os.MkdirAll(telemetryDir, 0700)
+	os.WriteFile(telemetryDir+"/devices.json", data, 0600)
+}
+
+func (ts *telemetryStore) record(dr *deviceRecord) {
+	if dr.DeviceHash == "" || len(dr.DeviceHash) < 16 {
+		return // invalid
+	}
+	now := time.Now().Unix()
+	ts.mu.Lock()
+	existing, ok := ts.Devices[dr.DeviceHash]
+	if ok {
+		// Update existing
+		existing.LastSeen = now
+		existing.Sessions++
+		if dr.Platform != "" { existing.Platform = dr.Platform }
+		if dr.Model != "" { existing.Model = dr.Model }
+		if dr.OSVersion != "" { existing.OSVersion = dr.OSVersion }
+		if dr.AppVersion != "" { existing.AppVersion = dr.AppVersion }
+		if dr.Transport != "" { existing.Transport = dr.Transport }
+		if dr.Lang != "" { existing.Lang = dr.Lang }
+		existing.HoldCount = dr.HoldCount
+		existing.ContactCount = dr.ContactCount
+		existing.UptimeMin = dr.UptimeMin
+	} else {
+		// New device
+		dr.FirstSeen = now
+		dr.LastSeen = now
+		dr.Sessions = 1
+		ts.Devices[dr.DeviceHash] = dr
+	}
+	ts.mu.Unlock()
+	ts.save()
+}
+
+func (ts *telemetryStore) stats() map[string]interface{} {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+
+	now := time.Now().Unix()
+	total := len(ts.Devices)
+	active24h := 0
+	active7d := 0
+	platforms := make(map[string]int)
+	versions := make(map[string]int)
+	transports := make(map[string]int)
+	models := make(map[string]int)
+	langs := make(map[string]int)
+	totalHold := 0
+	totalContacts := 0
+	totalSessions := 0
+	returnUsers := 0 // sessions > 1
+
+	for _, d := range ts.Devices {
+		if now - d.LastSeen < 24*3600 { active24h++ }
+		if now - d.LastSeen < 7*24*3600 { active7d++ }
+		if d.Platform != "" { platforms[d.Platform]++ }
+		if d.AppVersion != "" { versions[d.AppVersion]++ }
+		if d.Transport != "" { transports[d.Transport]++ }
+		if d.Model != "" { models[d.Model]++ }
+		if d.Lang != "" { langs[d.Lang]++ }
+		totalHold += d.HoldCount
+		totalContacts += d.ContactCount
+		totalSessions += d.Sessions
+		if d.Sessions > 1 { returnUsers++ }
+	}
+
+	// Top 10 models
+	type kv struct { K string; V int }
+	var topModels []kv
+	for k, v := range models {
+		topModels = append(topModels, kv{k, v})
+	}
+	// Simple sort (no import needed for small list)
+	for i := 0; i < len(topModels); i++ {
+		for j := i + 1; j < len(topModels); j++ {
+			if topModels[j].V > topModels[i].V {
+				topModels[i], topModels[j] = topModels[j], topModels[i]
+			}
+		}
+	}
+	topModelList := make([]string, 0, 10)
+	for i, m := range topModels {
+		if i >= 10 { break }
+		topModelList = append(topModelList, fmt.Sprintf("%s (%d)", m.K, m.V))
+	}
+
+	avgHold := 0.0
+	retention := 0.0
+	if total > 0 {
+		avgHold = float64(totalHold) / float64(total)
+		retention = float64(returnUsers) / float64(total) * 100
+	}
+
+	return map[string]interface{}{
+		"total_unique_devices": total,
+		"active_24h":          active24h,
+		"active_7d":           active7d,
+		"return_rate_pct":     fmt.Sprintf("%.1f", retention),
+		"total_sessions":      totalSessions,
+		"platforms":           platforms,
+		"versions":            versions,
+		"transports":          transports,
+		"languages":           langs,
+		"top_models":          topModelList,
+		"avg_hold_count":      fmt.Sprintf("%.1f", avgHold),
+	}
+}
+
+// handleTelemetry accepts anonymous device reports.
+func (r *relay) handleTelemetry(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if req.Method == "OPTIONS" {
+		return
+	}
+	if req.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+
+	var dr deviceRecord
+	if err := json.NewDecoder(req.Body).Decode(&dr); err != nil {
+		http.Error(w, "bad json", 400)
+		return
+	}
+	telemetry.record(&dr)
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"ok":true}`)
+}
+
+// handleStats returns public aggregate statistics.
+func (r *relay) handleStats(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(telemetry.stats())
+}
+
+// handleFederation allows relay-to-relay and client-to-relay exchange of known relay URLs.
+// GET: returns known relays. POST: announce a new relay URL.
+func (r *relay) handleFederation(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if req.Method == "OPTIONS" { return }
+
+	switch req.Method {
+	case "GET":
+		r.mu.RLock()
+		relays := make([]string, len(r.knownRelays))
+		copy(relays, r.knownRelays)
+		r.mu.RUnlock()
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"relays": relays,
+			"count":  len(relays),
+		})
+	case "POST":
+		var req2 struct {
+			URL string `json:"url"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&req2); err != nil || req2.URL == "" {
+			http.Error(w, "url required", 400)
+			return
+		}
+		r.mu.Lock()
+		found := false
+		for _, u := range r.knownRelays {
+			if u == req2.URL { found = true; break }
+		}
+		if !found {
+			r.knownRelays = append(r.knownRelays, req2.URL)
+			log.Printf("[Federation] New relay announced: %s", req2.URL)
+		}
+		r.mu.Unlock()
+		fmt.Fprintf(w, `{"ok":true,"new":%v}`, !found)
+	default:
+		http.Error(w, "GET or POST", 405)
 	}
 }
 

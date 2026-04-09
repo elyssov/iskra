@@ -286,6 +286,26 @@
           <span id="settings-hold-count" class="settings-value">—</span>
         </div>
       </div>
+      <div class="settings-section">
+        <div class="section-label">Relay-серверы</div>
+        <div id="relay-list"></div>
+        <div class="settings-item">
+          <input type="text" id="relay-add-url" placeholder="wss://my-relay.example.com/ws" style="width:70%">
+          <button id="btn-relay-add" style="padding:4px 12px;border-radius:6px;border:1px solid var(--accent);color:var(--accent);background:transparent;cursor:pointer">+</button>
+        </div>
+        <div class="settings-hint">Добавьте свой relay или полученный от друзей. Искра подключается ко всем доступным.</div>
+      </div>
+      <div class="settings-section">
+        <div class="section-label">Улучшение Искры</div>
+        <div class="settings-item">
+          <span>Анонимная статистика</span>
+          <label class="toggle-switch">
+            <input type="checkbox" id="settings-telemetry" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="settings-hint">Помогает нам понять на каких устройствах работает Искра. Никаких личных данных, ключей или сообщений.</div>
+      </div>
     </div>
   </div>
 

@@ -56,6 +56,8 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/master/contact", s.api.HandleMasterCheck)
 	mux.HandleFunc("/api/lara/contact", s.api.HandleLaraCheck)
 	mux.HandleFunc("/api/letters/", s.api.HandleLetters)
+	mux.HandleFunc("/api/telemetry/enabled", s.api.HandleTelemetryEnabled)
+	mux.HandleFunc("/api/relays", s.api.HandleRelays)
 	mux.HandleFunc("/api/channels", s.api.HandleListChannels)
 	mux.HandleFunc("/api/channels/create", s.api.HandleCreateChannel)
 	mux.HandleFunc("/api/channels/posts/", s.api.HandleChannelPosts)

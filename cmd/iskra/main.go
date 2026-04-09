@@ -20,6 +20,7 @@ import (
 	"github.com/iskra-messenger/iskra/internal/message"
 	"github.com/iskra-messenger/iskra/internal/security"
 	"github.com/iskra-messenger/iskra/internal/store"
+	"github.com/iskra-messenger/iskra/internal/telemetry"
 	"github.com/iskra-messenger/iskra/internal/web"
 )
 
@@ -28,7 +29,7 @@ func main() {
 	dataDir := flag.String("data", defaultDataDir(), "Data directory")
 	debug := flag.Bool("debug", false, "Enable debug logging")
 	meshPort := flag.Int("mesh-port", 0, "Mesh transport port (0 = random)")
-	relayURL := flag.String("relay", "wss://iskra-relay.onrender.com/ws", "Relay server URL (wss://host/ws)")
+	relayURL := flag.String("relay", "wss://iskra-relay-production.up.railway.app/ws", "Relay server URL (wss://host/ws)")
 	udpRelay := flag.String("udp-relay", "", "UDP relay address host:port (fallback when WS relay blocked)")
 	dnsRelayDomain := flag.String("dns-domain", "", "DNS tunnel relay domain (e.g. tun.iskra-dns.example.com)")
 	dnsRelayServer := flag.String("dns-server", "", "DNS tunnel relay server IP:port (e.g. 1.2.3.4:5353)")
@@ -115,7 +116,18 @@ func main() {
 	// Determine mode
 	mode := "lan"
 
-	// Initialize relay if specified
+	// Initialize relay pool (multi-relay support)
+	relayPool := mesh.NewRelayPool(
+		filepath.Join(*dataDir, "relays.json"),
+		[]string{
+			*relayURL,                                    // primary (Railway)
+			"wss://iskra-relay.onrender.com/ws",          // secondary (Render)
+		},
+	)
+	// Check all relays in background
+	go relayPool.CheckAll()
+
+	// Initialize primary relay client
 	var relayClient *mesh.RelayClient
 	var udpTransport *mesh.UDPTransport
 	var dnsTransport *mesh.DNSTransport
@@ -163,6 +175,7 @@ func main() {
 		Seed:         seed,
 		Locked:       locked,
 		UnlockCh:     unlockCh,
+		RelayPool:    relayPool,
 	}
 
 	// Message handler (shared between transport and relay)
@@ -256,6 +269,32 @@ func main() {
 		}()
 	})
 	discovery.Start()
+
+	// Initialize anonymous telemetry
+	var relayHTTPBase string
+	if relayClient != nil {
+		relayHTTPBase = relayClient.HTTPBaseURL()
+	}
+	telem := telemetry.New(
+		relayHTTPBase,
+		web.BuildNumber,
+		telemetry.DesktopDeviceID(), // Desktop: hostname+OS+arch
+		"",                          // model: empty for desktop
+		runtime.GOOS+" "+runtime.GOARCH,
+		"",    // lang: set by UI later
+		true,  // enabled by default
+	)
+	api.Telemetry = telem
+
+	// Send telemetry 30s after startup (relay should be connected by then)
+	go func() {
+		time.Sleep(30 * time.Second)
+		holdMsgs, _ := hold.GetForSync()
+		telem.HoldCount = len(holdMsgs)
+		telem.ContactCount = len(contacts.List())
+		telem.Transport = mode
+		telem.Send()
+	}()
 
 	// Start web server
 	server := web.NewServer(api, *port)

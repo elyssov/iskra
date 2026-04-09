@@ -24,7 +24,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "7" // Iskra 2.0 Build 7 "Endeavour"
+const BuildNumber = "9" // Iskra 2.0 Build 9 "El Dorado"
 
 // API handles REST API requests.
 type API struct {
@@ -50,6 +50,11 @@ type API struct {
 	UnlockCh     chan struct{} // closed when PIN verified / setup complete
 	DisplayName  string // user-set display name
 	PanicCode    string // user-configurable panic code (default "159")
+	Telemetry    interface {
+		Send()
+		SetEnabled(bool)
+	}
+	RelayPool    *mesh.RelayPool
 }
 
 // InboxFilePath returns the per-identity inbox file path.
@@ -130,6 +135,59 @@ func (a *API) HandleSetName(w http.ResponseWriter, r *http.Request) {
 		os.WriteFile(filepath.Join(a.DataDir, "displayname.txt"), []byte(a.DisplayName), 0600)
 	}
 	writeJSON(w, map[string]string{"ok": "true", "name": a.DisplayName})
+}
+
+// HandleRelays returns relay list (GET) or adds a relay (POST).
+func (a *API) HandleRelays(w http.ResponseWriter, r *http.Request) {
+	if a.RelayPool == nil {
+		writeJSON(w, map[string]string{"error": "relay pool not initialized"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, a.RelayPool.List())
+	case http.MethodPost:
+		var req struct {
+			URL string `json:"url"`
+		}
+		if err := readJSON(r, &req); err != nil || req.URL == "" {
+			http.Error(w, "url required", http.StatusBadRequest)
+			return
+		}
+		added := a.RelayPool.Add(req.URL, "manual")
+		// Verify in background
+		go a.RelayPool.CheckAll()
+		writeJSON(w, map[string]interface{}{"ok": true, "added": added})
+	case http.MethodDelete:
+		var req struct {
+			URL string `json:"url"`
+		}
+		if err := readJSON(r, &req); err != nil || req.URL == "" {
+			http.Error(w, "url required", http.StatusBadRequest)
+			return
+		}
+		a.RelayPool.Remove(req.URL)
+		writeJSON(w, map[string]bool{"ok": true})
+	}
+}
+
+// HandleTelemetryEnabled toggles anonymous telemetry on/off.
+func (a *API) HandleTelemetryEnabled(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if a.Telemetry != nil {
+		a.Telemetry.SetEnabled(req.Enabled)
+	}
+	writeJSON(w, map[string]bool{"ok": true, "enabled": req.Enabled})
 }
 
 // HandleContacts handles GET (list) and POST (add) for contacts.
