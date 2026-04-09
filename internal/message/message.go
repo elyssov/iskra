@@ -1,12 +1,68 @@
 package message
 
 import (
+	"bytes"
+	"compress/flate"
 	"crypto/sha256"
+	"io"
 	"time"
 
 	iskraCrypto "github.com/iskra-messenger/iskra/internal/crypto"
 	"github.com/iskra-messenger/iskra/internal/identity"
 )
+
+// Compression prefix — first byte of plaintext signals if it's compressed.
+// 0x00 = uncompressed, 0x01 = deflate compressed.
+const (
+	compNone    byte = 0x00
+	compDeflate byte = 0x01
+)
+
+// compressPayload tries to deflate the plaintext. Returns compressed data with prefix.
+// Only compresses text-like content types. If compression doesn't help, returns original.
+func compressPayload(plaintext []byte, contentType uint8) []byte {
+	// Only compress text, letters, group text — not file chunks or binary
+	if contentType != ContentText && contentType != ContentGroupText &&
+		contentType != ContentLetter && contentType != ContentChannelPost {
+		// Prepend "uncompressed" marker
+		return append([]byte{compNone}, plaintext...)
+	}
+
+	// Try deflate
+	var buf bytes.Buffer
+	w, err := flate.NewWriter(&buf, flate.BestCompression)
+	if err != nil {
+		return append([]byte{compNone}, plaintext...)
+	}
+	w.Write(plaintext)
+	w.Close()
+
+	compressed := buf.Bytes()
+	// Only use compressed if it actually saves space
+	if len(compressed) < len(plaintext) {
+		return append([]byte{compDeflate}, compressed...)
+	}
+	return append([]byte{compNone}, plaintext...)
+}
+
+// DecompressPayload decompresses payload based on prefix byte.
+// Handles both new (compressed) and legacy (uncompressed) messages.
+func DecompressPayload(data []byte) ([]byte, error) {
+	if len(data) == 0 {
+		return data, nil
+	}
+	switch data[0] {
+	case compDeflate:
+		r := flate.NewReader(bytes.NewReader(data[1:]))
+		defer r.Close()
+		return io.ReadAll(r)
+	case compNone:
+		return data[1:], nil
+	default:
+		// No prefix — legacy message (pre-compression), return as-is
+		return data, nil
+	}
+}
 
 // Message represents an Iskra protocol message.
 type Message struct {
@@ -55,8 +111,11 @@ func NewWithType(author *identity.Keypair, recipient RecipientKeys, contentType 
 	// RecipientID = first 20 bytes of Ed25519 pubkey
 	copy(msg.RecipientID[:], recipient.Ed25519Pub[:20])
 
+	// Compress before encryption (encrypted data doesn't compress)
+	compressedPayload := compressPayload(plaintext, contentType)
+
 	// Encrypt with X25519 keys
-	encrypted, err := iskraCrypto.Encrypt(author.X25519Private, recipient.X25519Pub, plaintext)
+	encrypted, err := iskraCrypto.Encrypt(author.X25519Private, recipient.X25519Pub, compressedPayload)
 	if err != nil {
 		return nil, err
 	}

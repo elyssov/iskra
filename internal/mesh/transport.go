@@ -48,11 +48,12 @@ func bloomContains(bloomData []byte, id [32]byte) bool {
 
 // Protocol command types
 const (
-	CmdHello byte = 1
-	CmdHave  byte = 2
-	CmdWant  byte = 3
-	CmdMsg   byte = 4
-	CmdAck   byte = 5
+	CmdHello    byte = 1
+	CmdHave     byte = 2 // bloom filter (legacy, still supported)
+	CmdWant     byte = 3 // request specific messages by ID
+	CmdMsg      byte = 4 // single message
+	CmdAck      byte = 5 // delivery acknowledgment
+	CmdManifest byte = 6 // hold manifest: list of message ID prefixes (8 bytes each)
 )
 
 // Transport manages TCP connections between nodes.
@@ -153,7 +154,11 @@ func (t *Transport) ConnectAndSync(ip string, port uint16, bloomData []byte, hol
 	t.mu.Unlock()
 	t.peers.SetConnected(peerPub, true)
 
-	// Send HAVE with bloom filter
+	// Send manifest (two-phase sync: manifest → WANT → deliver)
+	if err := t.sendManifest(conn, holdMsgs); err != nil {
+		return err
+	}
+	// Also send HAVE with bloom for backward compat with older nodes
 	if err := t.sendHave(conn, bloomData); err != nil {
 		return err
 	}
@@ -294,6 +299,45 @@ func (t *Transport) sendAck(conn net.Conn, msgID [32]byte) error {
 	return err
 }
 
+// sendManifest sends a hold manifest: count + 8-byte ID prefixes.
+// Recipient compares with own hold and sends WANT for missing messages.
+func (t *Transport) sendManifest(conn net.Conn, holdMsgs []*message.Message) error {
+	count := uint32(len(holdMsgs))
+	header := make([]byte, 5)
+	header[0] = CmdManifest
+	binary.BigEndian.PutUint32(header[1:5], count)
+
+	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if _, err := conn.Write(header); err != nil {
+		return err
+	}
+	// Send 8-byte prefix of each message ID
+	for _, msg := range holdMsgs {
+		if _, err := conn.Write(msg.ID[:8]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sendWantList sends a WANT request for specific messages by full 32-byte IDs.
+func (t *Transport) sendWantList(conn net.Conn, ids [][32]byte) error {
+	header := make([]byte, 5)
+	header[0] = CmdWant
+	binary.BigEndian.PutUint32(header[1:5], uint32(len(ids)))
+
+	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if _, err := conn.Write(header); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := conn.Write(id[:]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (t *Transport) handleConnection(conn net.Conn, peerPub [32]byte, holdMsgs []*message.Message) {
 	defer func() {
 		conn.Close()
@@ -398,26 +442,92 @@ func (t *Transport) handleConnection(conn net.Conn, peerPub [32]byte, holdMsgs [
 				if _, err := io.ReadFull(conn, id[:]); err != nil {
 					return
 				}
+
+				// Check if this is a prefix-only request (bytes 8-31 all zero)
+				isPrefix := true
+				for _, b := range id[8:] {
+					if b != 0 { isPrefix = false; break }
+				}
+
 				// Find and send the message from hold snapshot
 				found := false
 				for _, msg := range holdMsgs {
-					if msg.ID == id {
+					match := false
+					if isPrefix {
+						// Match on 8-byte prefix
+						match = msg.ID[0] == id[0] && msg.ID[1] == id[1] &&
+							msg.ID[2] == id[2] && msg.ID[3] == id[3] &&
+							msg.ID[4] == id[4] && msg.ID[5] == id[5] &&
+							msg.ID[6] == id[6] && msg.ID[7] == id[7]
+					} else {
+						match = msg.ID == id
+					}
+					if match {
 						t.sendMsg(conn, msg)
 						found = true
-						// Mark forwarded AFTER successful send
 						if t.hold != nil {
-							t.hold.MarkForwarded(id)
+							t.hold.MarkForwarded(msg.ID)
 						}
-						break
+						if !isPrefix { break } // exact match: only one
+						// prefix match: could match multiple (unlikely but possible)
 					}
 				}
-				// Fallback: read from disk if not in snapshot (bloom race)
-				if !found && t.hold != nil {
+				// Fallback: read from disk if not in snapshot
+				if !found && t.hold != nil && !isPrefix {
 					if msg, err := t.hold.Get(id); err == nil && msg != nil {
 						t.sendMsg(conn, msg)
 						t.hold.MarkForwarded(id)
 					}
 				}
+			}
+
+		case CmdManifest:
+			// Two-phase sync: peer sends manifest of their hold.
+			// We compare with OUR hold, then send WANT for what we're missing.
+			lenBuf := make([]byte, 4)
+			if _, err := io.ReadFull(conn, lenBuf); err != nil {
+				return
+			}
+			count := binary.BigEndian.Uint32(lenBuf)
+			if count > 100000 { // safety limit
+				return
+			}
+
+			// Read 8-byte ID prefixes
+			peerPrefixes := make([][8]byte, count)
+			for i := uint32(0); i < count; i++ {
+				if _, err := io.ReadFull(conn, peerPrefixes[i][:]); err != nil {
+					return
+				}
+			}
+
+			// Build set of our hold message ID prefixes for fast lookup
+			myPrefixes := make(map[[8]byte]bool)
+			if holdMsgs != nil {
+				for _, msg := range holdMsgs {
+					var prefix [8]byte
+					copy(prefix[:], msg.ID[:8])
+					myPrefixes[prefix] = true
+				}
+			}
+			// Find messages we don't have
+			var want [][32]byte
+			for _, prefix := range peerPrefixes {
+				if myPrefixes[prefix] {
+					continue // already have it
+				}
+				// We don't have this prefix — request full message
+				// Expand prefix to 32-byte ID (padded with zeros — peer matches on prefix)
+				var fullID [32]byte
+				copy(fullID[:8], prefix[:])
+				want = append(want, fullID)
+			}
+
+			if len(want) > 0 {
+				log.Printf("[SYNC] Manifest: peer has %d msgs, we need %d", count, len(want))
+				t.sendWantList(conn, want)
+			} else if count > 0 {
+				log.Printf("[SYNC] Manifest: peer has %d msgs, we have all", count)
 			}
 
 		default:

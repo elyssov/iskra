@@ -442,10 +442,16 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 			Nonce:        msg.Nonce,
 			Ciphertext:   msg.Payload,
 		}
-		plaintext, err := iskraCrypto.Decrypt(a.Keypair.X25519Private, payload)
+		compressedPlain, err := iskraCrypto.Decrypt(a.Keypair.X25519Private, payload)
 		if err != nil {
 			log.Printf("[Recv] Decryption failed: %v", err)
 			return
+		}
+		// Decompress (handles both compressed and legacy uncompressed messages)
+		plaintext, err := message.DecompressPayload(compressedPlain)
+		if err != nil {
+			log.Printf("[Recv] Decompression failed, using raw: %v", err)
+			plaintext = compressedPlain // fallback: use as-is
 		}
 		log.Printf("[Recv] Decrypted message, type=%d, len=%d", msg.ContentType, len(plaintext))
 
