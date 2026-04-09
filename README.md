@@ -1,4 +1,4 @@
-# Iskra / Искра 2.0 "Восток"
+# Iskra / Искра 2.0 Build 9 "El Dorado"
 
 **Peer-to-peer encrypted messenger that works when the internet doesn't.**
 
@@ -6,16 +6,22 @@
 
 Iskra (Russian: *Искра* — "spark") is a censorship-resistant messenger built for environments where centralized infrastructure is compromised, blocked, or shut down. Every device running Iskra is both a client and a relay node — there is no central server to seize or block.
 
-**What's new in 2.0:**
+**What's new in Build 9 "El Dorado":**
+- **Relay federation** — clients connect to multiple relays simultaneously, exchange relay lists during mesh sync. Anyone can run their own relay.
+- **Multi-relay pool** — add/remove relays in Settings, auto-verify availability, 90-day TTL for inactive relays
+- **Anonymous telemetry** — opt-in device statistics (SHA-256 hashed device ID, platform, model). No personal data, keys, or messages. Opt-out in Settings.
+- **Railway deployment** — relay hosted on Railway.app with auto-deploy from GitHub
+- **Dual relay** — Railway (primary) + Render (secondary), both active
+
+**Iskra 2.0 features:**
 - Three-tab interface: Contacts / Chats / Mail
 - Mail system with 60-day TTL for reliable delivery
-- Dark theme
+- Dark theme with auto-switching (Solntse/Inferno)
 - Context menu on contacts (message, letter, QR, forward, rename, delete)
-- Cosmic splash screen (because we're "Vostok")
 - TTL by content type: chat 15 days, mail 60 days, channels 30 days
-- File chunks excluded from store-and-forward (fixes hold bloat)
-- Settings page with display name, theme, PIN management
-- Built-in Lara contact (AI team member) with gold badge
+- Chunked encrypted file transfer (up to 10 MB)
+- Settings page with display name, theme, PIN management, relay list
+- 60 tests, 108 commits, 50 numbered builds across v1 and v2
 
 > *"A spark will kindle a flame"*
 
