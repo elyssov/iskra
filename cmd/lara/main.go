@@ -399,12 +399,28 @@ func apiGet(path string) {
 	fmt.Println(string(out))
 }
 
+// resolveUserID expands a short ID prefix to full user_id via contacts API.
+func resolveUserID(shortID string) string {
+	resp, err := http.Get(baseURL() + "/api/contacts")
+	if err != nil { return shortID }
+	defer resp.Body.Close()
+	var contacts []struct { UserID string `json:"user_id"` }
+	json.NewDecoder(resp.Body).Decode(&contacts)
+	for _, c := range contacts {
+		if strings.HasPrefix(c.UserID, shortID) {
+			return c.UserID
+		}
+	}
+	return shortID // not found — use as-is
+}
+
 func apiSend(userID, text string) {
 	port := getPort()
 	if port == "0" {
 		fmt.Println("Нода не запущена. Сначала: lara start")
 		os.Exit(1)
 	}
+	userID = resolveUserID(userID) // expand short prefix to full ID
 	body := fmt.Sprintf(`{"text":"%s"}`, strings.ReplaceAll(text, `"`, `\"`))
 	resp, err := http.Post(baseURL()+"/api/messages/"+userID, "application/json", strings.NewReader(body))
 	if err != nil {
@@ -428,6 +444,7 @@ func apiSendLetter(userID, subject, body string) {
 		fmt.Println("Нода не запущена. Сначала: lara start")
 		os.Exit(1)
 	}
+	userID = resolveUserID(userID)
 	payload := fmt.Sprintf(`{"subject":%q,"body":%q}`, subject, body)
 	resp, err := http.Post(baseURL()+"/api/letters/"+userID, "application/json", strings.NewReader(payload))
 	if err != nil {
