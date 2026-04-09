@@ -59,9 +59,14 @@ func NewGroups(path string) (*Groups, error) {
 		messages: make(map[string][]GroupMessage),
 	}
 	if err := g.load(); err != nil && !os.IsNotExist(err) {
-		// Corrupted file — backup and start fresh
-		fmt.Printf("[Groups] Load error (starting fresh): %v\n", err)
-		os.Rename(path, path+".corrupt")
+		// Check if file might be encrypted (first byte not '{' or '[')
+		if data, readErr := os.ReadFile(path); readErr == nil && len(data) > 0 && data[0] != '{' && data[0] != '[' {
+			// Encrypted — don't destroy, wait for SetVaultKey to re-load
+			fmt.Printf("[Groups] Encrypted, deferring load until PIN\n")
+		} else {
+			fmt.Printf("[Groups] Load error (starting fresh): %v\n", err)
+			os.Rename(path, path+".corrupt")
+		}
 	}
 	return g, nil
 }

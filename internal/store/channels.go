@@ -48,8 +48,12 @@ func NewChannels(path string) (*Channels, error) {
 		posts: make(map[string][]ChannelPost),
 	}
 	if err := ch.load(); err != nil && !os.IsNotExist(err) {
-		fmt.Printf("[Channels] Load error (starting fresh): %v\n", err)
-		os.Rename(path, path+".corrupt")
+		if data, readErr := os.ReadFile(path); readErr == nil && len(data) > 0 && data[0] != '{' && data[0] != '[' {
+			fmt.Printf("[Channels] Encrypted, deferring load until PIN\n")
+		} else {
+			fmt.Printf("[Channels] Load error (starting fresh): %v\n", err)
+			os.Rename(path, path+".corrupt")
+		}
 	}
 	return ch, nil
 }
