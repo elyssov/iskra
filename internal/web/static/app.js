@@ -897,12 +897,24 @@
     // Save contact
     document.getElementById('btn-add-save').addEventListener('click',async()=>{
       const inv=document.getElementById('add-invite').value.trim();
-      if(inv){const p=parseInviteLink(inv);if(p){document.getElementById('add-pubkey').value=p.pubkey;document.getElementById('add-x25519').value=p.x25519;if(p.name&&!document.getElementById('add-name').value)document.getElementById('add-name').value=p.name;}}
-      const name=document.getElementById('add-name').value.trim();
+      // Also try parsing from name field (user might paste link there)
+      const nameField=document.getElementById('add-name');
+      const invToParse = inv || nameField.value.trim();
+      if(invToParse && invToParse.startsWith('iskra://')){
+        const p=parseInviteLink(invToParse);
+        if(p){
+          document.getElementById('add-pubkey').value=p.pubkey;
+          document.getElementById('add-x25519').value=p.x25519;
+          if(p.name) nameField.value=p.name;
+          else if(!nameField.value || nameField.value.startsWith('iskra://')) nameField.value=p.pubkey.substring(0,8);
+        }
+      }
+      const name=nameField.value.trim();
       const pubkey=document.getElementById('add-pubkey').value.trim();
       const x25519=document.getElementById('add-x25519').value.trim();
-      if(!name||!pubkey) return;
-      try{const r=await fetch('/api/contacts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,pubkeyBase58:pubkey,x25519Base58:x25519})});if(r.ok||r.status===201){closeModal('modal-add');clearAddForm();await loadContacts();}}catch(e){}
+      if(!pubkey){alert('Вставьте ссылку iskra:// или введите ключ контакта');return;}
+      const finalName = name || pubkey.substring(0,8); // auto-name from key prefix
+      try{const r=await fetch('/api/contacts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:finalName,pubkeyBase58:pubkey,x25519Base58:x25519})});if(r.ok||r.status===201){closeModal('modal-add');clearAddForm();await loadContacts();}else{const d=await r.json().catch(()=>({}));alert(d.error||'Ошибка добавления');}}catch(e){alert('Ошибка сети');}
     });
 
     // Create group
