@@ -80,8 +80,9 @@ type Message struct {
 	Payload      []byte // Obfuscated ciphertext
 
 	// Signature
-	AuthorPub [32]byte // Ed25519 pubkey of author
-	Signature [64]byte
+	AuthorPub    [32]byte // Ed25519 pubkey of author
+	AuthorX25519 [32]byte // X25519 pubkey of author (for reply without /online)
+	Signature    [64]byte
 
 	// PoW
 	PoWNonce uint64
@@ -105,7 +106,8 @@ func NewWithType(author *identity.Keypair, recipient RecipientKeys, contentType 
 		TTL:         TTLForContentType(contentType),
 		Timestamp:   time.Now().Unix(),
 		ContentType: contentType,
-		AuthorPub:   author.Ed25519Pub,
+		AuthorPub:    author.Ed25519Pub,
+		AuthorX25519: author.X25519Pub,
 	}
 
 	// RecipientID = first 20 bytes of Ed25519 pubkey
@@ -144,7 +146,8 @@ func NewBroadcast(author *identity.Keypair, contentType uint8, plaintext []byte)
 		TTL:         TTLForContentType(contentType),
 		Timestamp:   time.Now().Unix(),
 		ContentType: contentType,
-		AuthorPub:   author.Ed25519Pub,
+		AuthorPub:    author.Ed25519Pub,
+		AuthorX25519: author.X25519Pub,
 	}
 	// RecipientID stays all zeros for broadcast
 
@@ -173,7 +176,8 @@ func NewPlainBroadcast(author *identity.Keypair, contentType uint8, plaintext []
 		TTL:         TTLForContentType(contentType),
 		Timestamp:   time.Now().Unix(),
 		ContentType: contentType,
-		AuthorPub:   author.Ed25519Pub,
+		AuthorPub:    author.Ed25519Pub,
+		AuthorX25519: author.X25519Pub,
 		Payload:     plaintext, // Not encrypted — readable by all
 	}
 	// RecipientID stays all zeros for broadcast
