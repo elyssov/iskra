@@ -9,9 +9,10 @@ import (
 // Format: [version:1][id:32][recipientID:20][ttl:4][timestamp:8][contentType:1]
 //         [ephemeralPub:32][nonce:24][payloadLen:4][payload:variable]
 //         [authorPub:32][signature:64][powNonce:8]
+//         [authorX25519:32] (optional, appended for v2+ — backward compatible)
 func (m *Message) Serialize() []byte {
-	// Fixed size: 1+32+20+4+8+1+32+24+4+32+64+8 = 230 + payload
-	buf := make([]byte, 0, 230+len(m.Payload))
+	// Fixed size: 230 + payload + 32 (authorX25519)
+	buf := make([]byte, 0, 262+len(m.Payload))
 
 	buf = append(buf, m.Version)
 	buf = append(buf, m.ID[:]...)
@@ -26,6 +27,12 @@ func (m *Message) Serialize() []byte {
 	buf = append(buf, m.AuthorPub[:]...)
 	buf = append(buf, m.Signature[:]...)
 	buf = append(buf, uint64Bytes(m.PoWNonce)...)
+
+	// v2 extension: author's X25519 pubkey for reply capability
+	var zeroKey [32]byte
+	if m.AuthorX25519 != zeroKey {
+		buf = append(buf, m.AuthorX25519[:]...)
+	}
 
 	return buf
 }
@@ -82,6 +89,12 @@ func Deserialize(data []byte) (*Message, error) {
 	offset += 64
 
 	m.PoWNonce = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+
+	// v2 extension: AuthorX25519 (32 bytes after PoWNonce, optional)
+	if len(data) >= offset+32 {
+		copy(m.AuthorX25519[:], data[offset:offset+32])
+	}
 
 	return m, nil
 }

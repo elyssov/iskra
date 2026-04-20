@@ -536,8 +536,15 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 				Outgoing:  false,
 			})
 
-			// Update contact last seen
+			// Update contact last seen + save X25519 for reply capability
 			a.Contacts.UpdateLastSeen(senderID, time.Now().Unix())
+
+			// Auto-learn sender's X25519 key from message (v2+)
+			var zeroKey [32]byte
+			if msg.AuthorX25519 != zeroKey {
+				x25519Base58 := identity.ToBase58(msg.AuthorX25519[:])
+				a.Contacts.UpdateX25519(senderID, x25519Base58)
+			}
 
 			// Auto-save inbox on receive (async — don't block relay readLoop)
 			if a.DataDir != "" {

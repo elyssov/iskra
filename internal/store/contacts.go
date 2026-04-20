@@ -154,6 +154,33 @@ func (c *Contacts) UpdateLastSeen(userID string, timestamp int64) {
 	}
 }
 
+// UpdateX25519 updates the X25519 public key for a contact (learned from incoming messages).
+func (c *Contacts) UpdateX25519(userID string, x25519Base58 string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.contacts {
+		if c.contacts[i].UserID == userID {
+			if c.contacts[i].X25519Pub == "" || c.contacts[i].X25519Pub != x25519Base58 {
+				c.contacts[i].X25519Pub = x25519Base58
+				c.save()
+			}
+			return
+		}
+	}
+
+	// Contact not in list — auto-add with learned keys
+	c.contacts = append(c.contacts, Contact{
+		Name:      userID[:12],
+		PubKey:    "", // will be filled from message
+		X25519Pub: x25519Base58,
+		UserID:    userID,
+		AddedAt:   time.Now().Unix(),
+		LastSeen:  time.Now().Unix(),
+	})
+	c.save()
+}
+
 // Import loads contacts from a JSON file (Iskra-Most format).
 // Expected format: [{"name": "...", "publicKey": "...", "x25519Key": "..."}]
 func (c *Contacts) Import(filePath string) error {
