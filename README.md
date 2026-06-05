@@ -34,7 +34,27 @@ Iskra (Russian: *Искра* — "spark") is a censorship-resistant messenger bu
 - TTL by content type: chat 15 days, mail 60 days, channels 30 days
 - Chunked encrypted file transfer (up to 10 MB)
 - Settings page with display name, theme, PIN management, relay list
-- 60+ tests, 115+ commits, 50+ numbered builds across v1 and v2
+- 121 commits, ~50 numbered builds across v1.x and v2.0 "Vostok" → "El Dorado"
+- 60 test functions across 13 test files; 12 200+ lines of Go and Kotlin
+
+---
+
+## Why Iskra exists
+
+Iskra addresses a critical gap in the open-source ecosystem: secure communication when infrastructure itself is compromised or disabled — protests, internet shutdowns, state-level DPI filtering.
+
+- Full **NaCl / libsodium cryptographic stack:** XSalsa20-Poly1305 + X25519 + Ed25519 + Argon2id + SHA-256 PoW + Bloom-filter dedup.
+- **Four transport layers with automatic fallback:** LAN multicast, WebSocket relay, DNS tunneling (base32-in-DNS-queries), Wi-Fi Direct (Android P2P). Each closes a specific failure mode of the network around it.
+- **Store-and-forward mesh routing** with Bloom-filter deduplication, payload compression (deflate), and content-type-differentiated TTL.
+- **Panic mode:** duress PIN wipes all data and replaces the interface with a decoy profile generating plausible mundane conversations about groceries.
+- **Steganographic distribution wrapper** (Pixel Classics) — a retro game collection with a headless Iskra node inside, allowing mesh-network expansion through an innocuous game download.
+- **Passed independent security audit** (Borix, April 2026 — Build 8 "Endeavour").
+- **Cross-platform:** Windows desktop, Linux, Android (WebView wrapper around Go core via gomobile).
+- **Relay federation:** Railway primary, Render secondary; anyone can self-host (`relay.exe`, ~6 MB).
+
+The project is small by star count. That's by design: the target users — journalists, activists, protesters in authoritarian environments — don't star repos. They use the tool and stay invisible.
+
+There is no comparable open-source solution that combines P2P mesh networking, DNS tunneling as transport, steganographic distribution, and a panic / decoy system in a single portable binary. Briar covers some of this ground but lacks DNS tunneling, steganography, panic decoy profiles, and desktop support. Iskra fills a gap that matters to the people who need it most — and who are least likely to leave a public trace of using it.
 
 > *"A spark will kindle a flame"*
 
