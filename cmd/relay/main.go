@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,6 +71,10 @@ const (
 	holdMaxPerUID = 200             // max messages per recipient
 	holdMaxTotal  = 50000           // max total messages across all recipients
 	holdDir       = "relay-hold"    // directory for persistent storage
+
+	// b11: federation hardening
+	maxKnownRelays      = 64              // cap on relay pool size (was unbounded)
+	federationPostEvery = 60 * time.Second // per-source-IP rate-limit on /api/federation POST
 )
 
 type relayStats struct {
@@ -85,7 +92,8 @@ type relay struct {
 	hold         map[string][]holdEntry   // UserID → queued messages (СВХ)
 	knownPeers   map[string]*knownPeer   // UserID → ever-connected peer (TTL 30 days)
 	lastSync     map[string]time.Time     // UserID → last NEWSYNC time (cooldown)
-	knownRelays  []string                 // known relay URLs (federation)
+	knownRelays  []string                 // known relay URLs (federation, capped at maxKnownRelays)
+	federationRate map[string]time.Time   // src IP → last accepted federation POST (b11)
 	stats        relayStats               // hourly stats
 	mu           sync.RWMutex
 }
@@ -101,11 +109,12 @@ func main() {
 	}
 
 	r := &relay{
-		clients:    make(map[string]*clientInfo),
-		aliases:    make(map[string]string),
-		hold:       make(map[string][]holdEntry),
-		knownPeers: make(map[string]*knownPeer),
-		lastSync:   make(map[string]time.Time),
+		clients:        make(map[string]*clientInfo),
+		aliases:        make(map[string]string),
+		hold:           make(map[string][]holdEntry),
+		knownPeers:     make(map[string]*knownPeer),
+		lastSync:       make(map[string]time.Time),
+		federationRate: make(map[string]time.Time),
 	}
 
 	// Load persistent hold from disk
@@ -820,6 +829,14 @@ func (r *relay) handleStats(w http.ResponseWriter, req *http.Request) {
 
 // handleFederation allows relay-to-relay and client-to-relay exchange of known relay URLs.
 // GET: returns known relays. POST: announce a new relay URL.
+//
+// b11 hardening:
+//   1. URL must parse and have scheme wss:// or https:// (no raw IPs / file:// / http://).
+//   2. Host must not be loopback or private/link-local (no 127.*, 192.168.*, 10.*, 172.16/12, ::1, fe80::, etc).
+//   3. Pool capped at maxKnownRelays — when full, oldest known-relay rotated out.
+//   4. Per source IP rate-limit: at most one accepted POST per federationPostEvery.
+//      Excess requests return 429.
+//   5. Body size capped at 512 bytes to prevent JSON-bomb DoS.
 func (r *relay) handleFederation(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -838,6 +855,9 @@ func (r *relay) handleFederation(w http.ResponseWriter, req *http.Request) {
 			"count":  len(relays),
 		})
 	case "POST":
+		// 5. body cap
+		req.Body = http.MaxBytesReader(w, req.Body, 512)
+
 		var req2 struct {
 			URL string `json:"url"`
 		}
@@ -845,20 +865,94 @@ func (r *relay) handleFederation(w http.ResponseWriter, req *http.Request) {
 			http.Error(w, "url required", 400)
 			return
 		}
+
+		// 1. + 2. URL validation
+		if !validFederationURL(req2.URL) {
+			http.Error(w, "invalid relay url (must be wss:// or https:// with public host)", 400)
+			return
+		}
+
+		// 4. per-source-IP rate-limit
+		srcIP := clientIP(req)
 		r.mu.Lock()
+		if last, ok := r.federationRate[srcIP]; ok && time.Since(last) < federationPostEvery {
+			r.mu.Unlock()
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(federationPostEvery.Seconds())))
+			http.Error(w, "rate limited", 429)
+			return
+		}
+		r.federationRate[srcIP] = time.Now()
+
+		// 3. dedup + cap
 		found := false
 		for _, u := range r.knownRelays {
 			if u == req2.URL { found = true; break }
 		}
 		if !found {
+			if len(r.knownRelays) >= maxKnownRelays {
+				// rotate out the oldest entry
+				r.knownRelays = r.knownRelays[1:]
+			}
 			r.knownRelays = append(r.knownRelays, req2.URL)
-			log.Printf("[Federation] New relay announced: %s", req2.URL)
+			log.Printf("[Federation] New relay announced from %s: %s (pool=%d)", srcIP, req2.URL, len(r.knownRelays))
 		}
 		r.mu.Unlock()
+
 		fmt.Fprintf(w, `{"ok":true,"new":%v}`, !found)
 	default:
 		http.Error(w, "GET or POST", 405)
 	}
+}
+
+// validFederationURL: scheme wss/https, parses cleanly, host non-empty and not in the
+// loopback/private/link-local space (so attackers can't seed clients with internal URLs).
+func validFederationURL(s string) bool {
+	if len(s) > 256 {
+		return false
+	}
+	u, err := url.Parse(s)
+	if err != nil || u == nil {
+		return false
+	}
+	if u.Scheme != "wss" && u.Scheme != "https" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "" {
+		return false
+	}
+	// Reject literal loopback / common private hostnames.
+	lh := strings.ToLower(host)
+	if lh == "localhost" || lh == "ip6-localhost" || lh == "ip6-loopback" {
+		return false
+	}
+	// IP-literal checks
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return false
+		}
+	}
+	return true
+}
+
+// clientIP extracts the best-effort source IP from a request, respecting
+// X-Forwarded-For and X-Real-IP when the relay sits behind a reverse proxy
+// (Render, Railway, Fly all set these).
+func clientIP(req *http.Request) string {
+	if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+		// first hop is the originator
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xrip := req.Header.Get("X-Real-IP"); xrip != "" {
+		return strings.TrimSpace(xrip)
+	}
+	if host, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
+		return host
+	}
+	return req.RemoteAddr
 }
 
 func uint32Bytes(v uint32) []byte {

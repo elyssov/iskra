@@ -24,7 +24,7 @@ import (
 )
 
 // Build number — major.minor: major = feature builds, minor = polish/fix builds
-const BuildNumber = "10" // Iskra 2.0 Build 10 "El Dorado"
+const BuildNumber = "11" // Iskra 2.0 Build 11 "El Dorado" — security hardening fixpack
 
 // API handles REST API requests.
 type API struct {
@@ -1492,15 +1492,22 @@ func (a *API) HandlePINSetup(w http.ResponseWriter, r *http.Request) {
 	key := security.DeriveStorageKey(a.Seed, req.PIN)
 	a.VaultKey = &key
 
-	// Re-save existing stores encrypted (migration)
+	// Re-save existing stores encrypted (migration).
+	// b11: use SetVaultKey() where available so the in-memory state is reloaded under
+	// the new key and immediately re-saved encrypted to disk. Previously plain field
+	// assignment left existing plaintext .json files on disk until the next mutation.
 	if a.Contacts != nil {
-		a.Contacts.VaultKey = &key
+		a.Contacts.SetVaultKey(&key)
 	}
 	if a.Inbox != nil {
 		a.Inbox.VaultKey = &key
+		_ = a.Inbox.Save(a.InboxFilePath())
 	}
 	if a.Groups != nil {
-		a.Groups.VaultKey = &key
+		a.Groups.SetVaultKey(&key)
+	}
+	if a.Channels != nil {
+		a.Channels.SetVaultKey(&key)
 	}
 
 	a.Locked = false
@@ -1587,6 +1594,9 @@ func (a *API) HandlePINVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Groups != nil {
 		a.Groups.SetVaultKey(&key)
+	}
+	if a.Channels != nil {
+		a.Channels.SetVaultKey(&key)
 	}
 
 	a.Locked = false

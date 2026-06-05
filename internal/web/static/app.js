@@ -1114,15 +1114,25 @@
     });
 
     // Relay list management
+    // b11: relay URLs are not trusted (they come from federation, see C2/C4 in code review).
+    //      Render via escaped textContent + event delegation, never interpolate into HTML/onclick.
     function loadRelayList(){
       fetch('/api/relays').then(r=>r.json()).then(list=>{
         const el=document.getElementById('relay-list');
         if(!el||!Array.isArray(list))return;
-        el.innerHTML=list.map(r=>{
+        el.innerHTML=list.map((r,i)=>{
           const dot=r.alive?'🟢':'🔴';
-          const src=r.source==='builtin'?'':'<span style="cursor:pointer;color:var(--text3);margin-left:8px" onclick="removeRelay(\''+r.url+'\')">✕</span>';
-          return `<div class="settings-item" style="font-size:12px">${dot} <span style="flex:1;overflow:hidden;text-overflow:ellipsis">${r.url.replace('wss://','').replace('/ws','')}</span>${src}</div>`;
+          const display=esc(String(r.url||'').replace('wss://','').replace('/ws',''));
+          const src=r.source==='builtin'?'':'<span class="rly-rm" data-idx="'+i+'" style="cursor:pointer;color:var(--text3);margin-left:8px">✕</span>';
+          return '<div class="settings-item" style="font-size:12px">'+dot+' <span style="flex:1;overflow:hidden;text-overflow:ellipsis">'+display+'</span>'+src+'</div>';
         }).join('');
+        el.querySelectorAll('.rly-rm').forEach(span=>{
+          span.addEventListener('click',()=>{
+            const idx=parseInt(span.getAttribute('data-idx'),10);
+            const item=list[idx];
+            if(item&&item.url)removeRelay(item.url);
+          });
+        });
       }).catch(()=>{});
     }
     window.removeRelay=function(url){

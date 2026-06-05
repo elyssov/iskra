@@ -255,8 +255,14 @@ class MainActivity : AppCompatActivity() {
         val data = intent?.data ?: return
         if (data.scheme == "iskra") {
             val link = data.toString()
+            // b11: previously interpolated `'$link'` directly into evaluateJavascript,
+            // which allowed a crafted iskra:// URL to escape the string literal and
+            // execute arbitrary JS in the WebView (deep-link RCE). JSONObject.quote
+            // produces a properly escaped JS string literal — single quotes, backslashes,
+            // newlines, control chars are all handled.
+            val safe = org.json.JSONObject.quote(link)
             webView?.evaluateJavascript(
-                "if(window._handleDeepLink) window._handleDeepLink('$link')",
+                "if(window._handleDeepLink) window._handleDeepLink($safe)",
                 null
             )
         }

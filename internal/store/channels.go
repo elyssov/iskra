@@ -229,3 +229,19 @@ func (ch *Channels) Save() error {
 	defer ch.mu.Unlock()
 	return ch.save()
 }
+
+// SetVaultKey sets the encryption key for channel storage and re-loads from disk
+// under the new key (recovers any "Encrypted, deferring load until PIN" state from
+// NewChannels). Added in b11 to close the data-loss gap: before this method existed,
+// PIN handlers wired Contacts/Inbox/Groups but never Channels, so already-encrypted
+// channel files became unreachable after restart.
+func (ch *Channels) SetVaultKey(key *[32]byte) {
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	ch.VaultKey = key
+	// Re-try the deferred load under the new key. If nothing was deferred (channels
+	// already in memory) this is a cheap no-op; if file is missing we ignore the error.
+	_ = ch.load()
+	// Write back so the on-disk copy matches the new encryption state.
+	_ = ch.save()
+}

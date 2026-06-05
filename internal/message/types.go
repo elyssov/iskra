@@ -15,7 +15,10 @@ const (
 )
 
 // Protocol version
-const ProtocolVersion uint8 = 1
+// v1: original wire format (header + crypto + sig + PoW)
+// v2 (b11, 5 Jun 2026): AuthorX25519 included in serialize, computeID, AND signableBytes
+//                       (closes MITM-on-reply: relay can no longer substitute the X25519 key)
+const ProtocolVersion uint8 = 2
 
 // TTL by content type
 const (

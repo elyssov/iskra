@@ -275,6 +275,9 @@ func main() {
 	if relayClient != nil {
 		relayHTTPBase = relayClient.HTTPBaseURL()
 	}
+	// b11: telemetry default is FALSE — README has always promised "opt-in" telemetry.
+	// Users who explicitly enabled it via Settings will have their preference persisted
+	// and restored separately; this constructor only controls the cold-boot default.
 	telem := telemetry.New(
 		relayHTTPBase,
 		web.BuildNumber,
@@ -282,7 +285,7 @@ func main() {
 		"",                          // model: empty for desktop
 		runtime.GOOS+" "+runtime.GOARCH,
 		"",    // lang: set by UI later
-		true,  // enabled by default
+		false, // enabled — opt-in by default (was true pre-b11)
 	)
 	api.Telemetry = telem
 

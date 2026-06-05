@@ -190,6 +190,8 @@ func NewPlainBroadcast(author *identity.Keypair, contentType uint8, plaintext []
 }
 
 // computeID returns SHA256 of all message fields except ID, Signature, PoWNonce.
+// b11: AuthorX25519 is included so the bloom-filter dedup keys distinguish messages
+// that differ only by reply-key (and so the signature, which binds ID, also binds it).
 func (m *Message) computeID() [32]byte {
 	h := sha256.New()
 	h.Write([]byte{m.Version})
@@ -201,12 +203,15 @@ func (m *Message) computeID() [32]byte {
 	h.Write(m.Nonce[:])
 	h.Write(m.Payload)
 	h.Write(m.AuthorPub[:])
+	h.Write(m.AuthorX25519[:])
 	var id [32]byte
 	copy(id[:], h.Sum(nil))
 	return id
 }
 
 // signableBytes returns bytes that are signed.
+// b11: AuthorX25519 is included to prevent a relay from substituting the reply key
+// while preserving a valid signature (the CRITICAL MITM-on-reply bug introduced by 56cc686).
 func (m *Message) signableBytes() []byte {
 	var data []byte
 	data = append(data, m.Version)
@@ -218,6 +223,7 @@ func (m *Message) signableBytes() []byte {
 	data = append(data, m.EphemeralPub[:]...)
 	data = append(data, m.Nonce[:]...)
 	data = append(data, m.Payload...)
+	data = append(data, m.AuthorX25519[:]...)
 	return data
 }
 

@@ -46,20 +46,18 @@ func NewContacts(path string) (*Contacts, error) {
 
 // SetVaultKey sets the encryption key for contacts storage.
 // Contacts contain names + pubkeys. Encrypted at rest when VaultKey is set.
+// b11: VaultKey is now honoured (was unconditionally cleared in b10, leaving contacts
+// in plaintext on disk despite the README's promise of encrypted storage).
 func (c *Contacts) SetVaultKey(key *[32]byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// Try reloading with key (migration from encrypted format)
-	oldKey := c.VaultKey
 	c.VaultKey = key
-	if err := c.load(); err == nil && len(c.contacts) > 0 {
-		// Loaded successfully — save as plain JSON (migration)
-		c.VaultKey = nil
-		c.save()
-	} else {
-		c.VaultKey = oldKey
-	}
-	c.VaultKey = nil // contacts always stored unencrypted going forward
+	// Reload from disk under the new key (no-op if file already loaded plain
+	// or if file doesn't exist yet) so subsequent saves write encrypted bytes.
+	_ = c.load()
+	// Re-save immediately so the on-disk copy is encrypted under the new key
+	// (covers the case where load returned plain bytes and we just upgraded).
+	_ = c.save()
 }
 
 // Add adds a new contact.

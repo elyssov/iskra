@@ -1,10 +1,23 @@
-# Iskra / Искра 2.0 Build 9 "El Dorado"
+# Iskra / Искра 2.0 Build 11 "El Dorado"
 
 **Peer-to-peer encrypted messenger that works when the internet doesn't.**
 
 *"Поехали!" — Yuri Gagarin, April 12, 1961*
 
 Iskra (Russian: *Искра* — "spark") is a censorship-resistant messenger built for environments where centralized infrastructure is compromised, blocked, or shut down. Every device running Iskra is both a client and a relay node — there is no central server to seize or block.
+
+**What's new in Build 11 "El Dorado" — Reply-Capable + Security Hardening:**
+- **Protocol v2 — offline-capable replies.** The author's X25519 public key now ships inside every message, signed end-to-end. You can reply the moment you read, without waiting for the sender to come back online.
+- **Signature now covers `AuthorX25519`** — closes a CRITICAL MITM-on-reply where a relay could substitute its own X25519 key after b10's wire-format extension.
+- **Stored XSS in relay list — closed.** Relay URLs are now rendered via escaped textContent + event delegation, never via `innerHTML` / `onclick` string interpolation.
+- **Android deep-link RCE — closed.** `iskra://` links are passed through `JSONObject.quote()` before any `evaluateJavascript` call.
+- **Relay federation hardened.** The `/api/federation` POST now requires `wss://` or `https://` scheme with a non-loopback / non-private host, caps the pool at 64 entries, rate-limits per source IP (1/min), and bounds request body size.
+- **Channels store gets `SetVaultKey`** — closes a data-loss gap where encrypted channel state became unreachable after restart.
+- **Contacts encrypted at rest** — `Contacts.SetVaultKey()` previously silently discarded the key; now honoured like every other store.
+- **Inbox re-saved on PIN setup** — vault key set no longer leaves plaintext on disk until next mutation.
+- **Goroutine leaks closed** — `cargo.onPeer` discovery callback bounded by a 16-slot semaphore.
+- **Obfuscation keystream extended past 8 KB** — the `byte` counter in `generateObfuscationStream` widened to `uint32` (with v1-compatible 1-byte encoding for the first 8 KB); file chunks no longer leak structure under DPI.
+- **Telemetry opt-in default restored.** Was true on cold boot in b10 despite the README's opt-in promise; fresh installs now default to false.
 
 **What's new in Build 9 "El Dorado":**
 - **Relay federation** — clients connect to multiple relays simultaneously, exchange relay lists during mesh sync. Anyone can run their own relay.
@@ -21,7 +34,7 @@ Iskra (Russian: *Искра* — "spark") is a censorship-resistant messenger bu
 - TTL by content type: chat 15 days, mail 60 days, channels 30 days
 - Chunked encrypted file transfer (up to 10 MB)
 - Settings page with display name, theme, PIN management, relay list
-- 60 tests, 108 commits, 50 numbered builds across v1 and v2
+- 60+ tests, 115+ commits, 50+ numbered builds across v1 and v2
 
 > *"A spark will kindle a flame"*
 

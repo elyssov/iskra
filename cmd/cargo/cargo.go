@@ -142,10 +142,22 @@ func (c *Cargo) Start() error {
 		c.dns.Start()
 	}
 
-	// Start LAN discovery
+	// Start LAN discovery.
+	// b11: discovery callbacks previously spawned an unbounded goroutine per peer.
+	// On a busy LAN with many announcements this piled up thousands of in-flight
+	// ConnectAndSync calls. Bounded by a semaphore (16 concurrent) — excess peers
+	// are dropped this tick and rediscovered on the next multicast cycle.
 	c.discovery = mesh.NewDiscovery(c.keypair.Ed25519Pub, c.transport.Port(), c.peers)
+	syncSem := make(chan struct{}, 16)
 	c.discovery.SetOnPeer(func(pubKey [32]byte, ip string, peerPort uint16) {
+		select {
+		case syncSem <- struct{}{}:
+		default:
+			// already at concurrency cap; skip, peer will reappear next discovery tick
+			return
+		}
 		go func() {
+			defer func() { <-syncSem }()
 			holdMsgs, _ := c.hold.GetForSync()
 			c.transport.ConnectAndSync(ip, peerPort, c.bloom.Export(), holdMsgs)
 		}()

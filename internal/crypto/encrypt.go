@@ -91,15 +91,41 @@ func deriveKey(sharedSecret []byte, info string) [32]byte {
 }
 
 // generateObfuscationStream creates a keystream for obfuscation using repeated HMAC.
+//
+// b11: counter widened from byte to uint32 to fix keystream-wrap on payloads >8 KB.
+// Previously `counter := byte(0)` wrapped to zero after 256 HMAC blocks (256*32=8192
+// bytes of keystream), so file chunks (~900 KB) silently XORed with a repeating
+// pattern. XSalsa20-Poly1305 underneath still protected confidentiality, but the
+// DPI-hiding purpose of the obfuscation layer was defeated for any large payload.
+//
+// Backward compatibility (subtle): for the first 256 iterations (counter 0..255)
+// we emit a SINGLE byte into the HMAC — byte-identical to the v1 (pre-b11) encoding.
+// This means every Iskra message ≤8 KB of ciphertext is wire-compatible between v1
+// and v2 peers (the vast majority — text, letters, channel posts, group text all
+// fit comfortably). Only when counter reaches 256 do we switch to 4-byte big-endian
+// encoding; from byte 8193 onward a v2 peer cannot interoperate with v1 — but v1
+// payloads of that size were already broken from a security standpoint (repeating
+// keystream pattern) so the loss is moot. File chunks now require b11 on both ends.
 func generateObfuscationStream(sharedSecret []byte, nonce []byte, length int) []byte {
 	stream := make([]byte, 0, length)
 	info := append(nonce, []byte("iskra-obf")...)
 
-	counter := byte(0)
+	var counter uint32
 	for len(stream) < length {
 		mac := hmac.New(sha256.New, sharedSecret)
 		mac.Write(info)
-		mac.Write([]byte{counter})
+		if counter < 256 {
+			// v1-compatible single-byte encoding for the first 8 KB of keystream
+			mac.Write([]byte{byte(counter)})
+		} else {
+			// extended encoding for counter ≥ 256: 4-byte big-endian
+			var ctrBuf [4]byte
+			ctrBuf[0] = byte(counter >> 24)
+			ctrBuf[1] = byte(counter >> 16)
+			ctrBuf[2] = byte(counter >> 8)
+			ctrBuf[3] = byte(counter)
+			mac.Write(ctrBuf[:])
+		}
 		stream = append(stream, mac.Sum(nil)...)
 		counter++
 	}
