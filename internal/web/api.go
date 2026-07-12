@@ -589,7 +589,13 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 						}
 					}
 
-					log.Printf("[Group] msg in %s from %s, %d bytes", groupID[:8], senderName, len(text))
+					gidLog := groupID
+					if len(gidLog) > 8 {
+						gidLog = gidLog[:8]
+					}
+					// groupID is attacker-controlled (split from decrypted plaintext); a
+					// short value here would panic on groupID[:8] — a remote one-packet crash.
+					log.Printf("[Group] msg in %s from %s, %d bytes", gidLog, senderName, len(text))
 					a.Groups.AddMessage(store.GroupMessage{
 						ID:        hex.EncodeToString(msg.ID[:]),
 						GroupID:   groupID,
@@ -607,8 +613,14 @@ func (a *API) HandleIncomingMessage(msg *message.Message) {
 			if a.Groups != nil {
 				var group store.Group
 				if err := json.Unmarshal(plaintext, &group); err == nil {
-					log.Printf("[Group] Received invite for group %q (%s)", group.Name, group.ID[:8])
-					a.Groups.AddByInvite(group)
+					// group.ID is attacker-controlled JSON; reject malformed invites
+					// rather than panic on group.ID[:8] (remote one-packet crash).
+					if len(group.ID) < 8 {
+						log.Printf("[Group] Ignoring invite with malformed group ID")
+					} else {
+						log.Printf("[Group] Received invite for group %q (%s)", group.Name, group.ID[:8])
+						a.Groups.AddByInvite(group)
+					}
 				}
 			}
 
@@ -1846,10 +1858,12 @@ func (a *API) HandleSendFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Save to temp file
+	// Save to temp file. Use only the base name — a client-supplied multipart
+	// filename containing "../" would otherwise let filepath.Join escape tmpDir
+	// and write to an arbitrary path (path traversal).
 	tmpDir := filepath.Join(a.DataDir, "tmp")
 	os.MkdirAll(tmpDir, 0700)
-	tmpPath := filepath.Join(tmpDir, header.Filename)
+	tmpPath := filepath.Join(tmpDir, filepath.Base(header.Filename))
 	tmpFile, err := os.Create(tmpPath)
 	if err != nil {
 		http.Error(w, "temp file error", 500)

@@ -5,6 +5,11 @@ import (
 	"fmt"
 )
 
+// maxPayloadLen caps a single deserialized message payload. Legitimate payloads
+// (text, control frames, one file-transfer chunk) are at most a few KB; 16 MiB is
+// a generous ceiling that still prevents attacker-driven multi-GB allocations.
+const maxPayloadLen = 16 << 20 // 16 MiB
+
 // Serialize converts a Message to binary format.
 // v1 format: [version:1][id:32][recipientID:20][ttl:4][timestamp:8][contentType:1]
 //            [ephemeralPub:32][nonce:24][payloadLen:4][payload:variable]
@@ -80,7 +85,12 @@ func Deserialize(data []byte) (*Message, error) {
 	payloadLen := binary.BigEndian.Uint32(data[offset : offset+4])
 	offset += 4
 
-	if uint32(len(data)-offset) < payloadLen+32+64+8 {
+	// Bounds check in uint64. The old check computed payloadLen+32+64+8 in uint32,
+	// which wraps for attacker-chosen payloadLen near 2^32: the guard then passed for
+	// a tiny buffer and make([]byte, payloadLen) attempted a ~4 GB allocation (OOM on
+	// mobile) followed by an out-of-range copy panic — a one-packet remote crash.
+	// maxPayloadLen caps a single message far below any legitimate size (chunks are KB).
+	if payloadLen > maxPayloadLen || uint64(len(data)-offset) < uint64(payloadLen)+32+64+8 {
 		return nil, fmt.Errorf("data too short for payload length %d", payloadLen)
 	}
 

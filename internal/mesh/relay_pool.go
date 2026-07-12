@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -163,6 +164,12 @@ func (rp *RelayPool) CheckAll() {
 
 // checkRelay pings a relay URL to see if it responds.
 func checkRelay(wsURL string) bool {
+	// Guard before slicing: a short/garbage URL (e.g. "ab" from the local
+	// POST /api/relays handler, which only checks non-empty) would panic on
+	// wsURL[3:] and crash the node.
+	if !strings.HasPrefix(wsURL, "ws") || len(wsURL) < 6 {
+		return false
+	}
 	// Convert wss://host/ws → https://host/
 	httpURL := "https" + wsURL[3:]
 	if len(httpURL) > 3 && httpURL[len(httpURL)-3:] == "/ws" {
